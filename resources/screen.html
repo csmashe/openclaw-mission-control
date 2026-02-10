@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>OpenClaw Mission Control</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#136dec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101822",
+                        "surface-dark": "#1a2433", // Slightly lighter than background-dark for cards
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "monospace"],
+                        "mono": ["JetBrains Mono", "monospace"] // Adding specific mono font for terminal feel
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                    boxShadow: {
+                        "glow": "0 0 10px rgba(19, 109, 236, 0.5)",
+                        "glow-sm": "0 0 5px rgba(19, 109, 236, 0.3)"
+                    }
+                },
+            },
+        }
+    </script>
+<!-- Google Fonts: Space Grotesk & JetBrains Mono for that hacker aesthetic -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&amp;family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Icons -->
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        /* Custom Scrollbar for Webkit */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #101822; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a3b55; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #136dec; 
+        }
+        
+        .glass-panel {
+            background: rgba(16, 24, 34, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(19, 109, 236, 0.2);
+        }
+
+        .terminal-text {
+            text-shadow: 0 0 2px rgba(19, 109, 236, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-300 font-display h-screen flex overflow-hidden selection:bg-primary selection:text-white">
+<!-- Left Sidebar: Navigation -->
+<aside class="w-16 flex flex-col items-center py-6 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1219] z-20 shrink-0">
+<!-- Logo -->
+<div class="mb-8 w-10 h-10 rounded bg-primary/20 flex items-center justify-center shadow-glow-sm cursor-pointer group">
+<span class="material-icons text-primary group-hover:animate-pulse">terminal</span>
+</div>
+<!-- Nav Items -->
+<nav class="flex-1 flex flex-col gap-6 w-full items-center">
+<button class="w-10 h-10 rounded flex items-center justify-center text-primary bg-primary/10 shadow-glow transition-all relative group">
+<span class="absolute left-0 w-1 h-6 bg-primary rounded-r opacity-100 transition-opacity"></span>
+<span class="material-icons">dashboard</span>
+<div class="absolute left-14 bg-surface-dark px-2 py-1 rounded text-xs text-primary opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity border border-primary/20 whitespace-nowrap z-50">Dashboard</div>
+</button>
+<button class="w-10 h-10 rounded flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/5 transition-all relative group">
+<span class="absolute left-0 w-1 h-6 bg-primary rounded-r opacity-0 group-hover:opacity-100 transition-opacity"></span>
+<span class="material-icons">smart_toy</span> <!-- Agents -->
+<div class="absolute left-14 bg-surface-dark px-2 py-1 rounded text-xs text-primary opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity border border-primary/20 whitespace-nowrap z-50">Agents</div>
+</button>
+<button class="w-10 h-10 rounded flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/5 transition-all relative group">
+<span class="absolute left-0 w-1 h-6 bg-primary rounded-r opacity-0 group-hover:opacity-100 transition-opacity"></span>
+<span class="material-icons">rocket_launch</span> <!-- Missions -->
+<div class="absolute left-14 bg-surface-dark px-2 py-1 rounded text-xs text-primary opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity border border-primary/20 whitespace-nowrap z-50">Missions</div>
+</button>
+<button class="w-10 h-10 rounded flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/5 transition-all relative group">
+<span class="absolute left-0 w-1 h-6 bg-primary rounded-r opacity-0 group-hover:opacity-100 transition-opacity"></span>
+<span class="material-icons">receipt_long</span> <!-- Logs -->
+<div class="absolute left-14 bg-surface-dark px-2 py-1 rounded text-xs text-primary opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity border border-primary/20 whitespace-nowrap z-50">Logs</div>
+</button>
+</nav>
+<!-- Bottom Actions -->
+<div class="flex flex-col gap-4 w-full items-center">
+<button class="w-10 h-10 rounded flex items-center justify-center text-slate-400 hover:text-primary hover:bg-primary/5 transition-all relative group">
+<span class="material-icons">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-slate-700 overflow-hidden border border-slate-600 relative">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="User profile picture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAvwUnCnBqOAXpW5wJZaciogy464nNaqZVP8p_2tVYu-G37W6V01TxyIhELR6LXzpjysM0kVfaF2XUqgw2Fxp4QjRQHG5bnu5Nmxk67QWHRyMQ5QRGzuoPKStwxAaX4MtwAQUqFpknNdzGCSl1UUTM4rgjQsdDD5Xs82MNYwuvPquC0fpPfG7dllHo6c38o-uGNVGAq8g7LApQGyQUUPtzbb4bU7CAYtLWXzRoGQukNGKVyxgDTO0FL10Qf4DWcm2kH482M4b_GlH8"/>
+<div class="absolute bottom-0 right-0 w-2 h-2 bg-primary rounded-full border border-background-dark"></div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark relative">
+<!-- Background Grid Pattern -->
+<div class="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style="background-image: linear-gradient(#136dec 1px, transparent 1px), linear-gradient(90deg, #136dec 1px, transparent 1px); background-size: 40px 40px;"></div>
+<!-- Header: System Status -->
+<header class="h-14 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-background-dark/90 backdrop-blur-sm flex items-center justify-between px-6 z-10 shrink-0">
+<div class="flex items-center gap-6">
+<h1 class="text-lg font-bold tracking-wider text-slate-900 dark:text-white uppercase flex items-center gap-2">
+<span class="text-primary font-mono text-xl">//</span> Mission Control
+                </h1>
+<div class="h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex items-center gap-2 text-xs font-mono text-primary">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+</span>
+                    SYSTEM ONLINE
+                </div>
+</div>
+<div class="flex items-center gap-6 text-xs font-mono">
+<div class="flex items-center gap-2 text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-surface-dark px-3 py-1.5 rounded border border-slate-200 dark:border-slate-700">
+<span class="material-icons text-[14px] text-green-500">wifi</span>
+                    ws://127.0.0.1:18789
+                </div>
+<div class="flex items-center gap-4">
+<div class="flex flex-col items-end leading-none gap-1">
+<span class="text-slate-400 text-[10px] uppercase">Tokens</span>
+<span class="text-slate-900 dark:text-white font-bold">14.2k</span>
+</div>
+<div class="flex flex-col items-end leading-none gap-1">
+<span class="text-slate-400 text-[10px] uppercase">Cost</span>
+<span class="text-primary font-bold">$0.42</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Kanban Board Container -->
+<div class="flex-1 overflow-x-auto overflow-y-hidden p-6 z-10">
+<div class="flex h-full gap-4 min-w-[1200px]">
+<!-- Column: INBOX -->
+<div class="flex-1 flex flex-col min-w-[280px] max-w-[350px] bg-slate-100 dark:bg-[#0d1219]/50 rounded-lg border border-slate-200 dark:border-slate-800/60 backdrop-blur-sm">
+<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-slate-400"></span>
+<h3 class="font-bold text-sm tracking-wide text-slate-700 dark:text-slate-200">INBOX</h3>
+<span class="bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] px-1.5 rounded font-mono">3</span>
+</div>
+<button class="text-slate-400 hover:text-primary transition-colors"><span class="material-icons text-sm">add</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm hover:border-primary/50 hover:shadow-glow-sm transition-all cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">LOW</span>
+<span class="text-[10px] font-mono text-slate-500">#401</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug">Parse documentation PDF for RAG pipeline</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center text-[10px] text-slate-400">?</div>
+</div>
+<span class="text-[10px] font-mono text-slate-500">2m ago</span>
+</div>
+</div>
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm hover:border-primary/50 hover:shadow-glow-sm transition-all cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded border border-orange-400/20">MED</span>
+<span class="text-[10px] font-mono text-slate-500">#405</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug">Refactor Auth Module for OAuth2 support</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center text-[10px] text-slate-400">?</div>
+</div>
+<span class="text-[10px] font-mono text-slate-500">45m ago</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: ASSIGNED -->
+<div class="flex-1 flex flex-col min-w-[280px] max-w-[350px] bg-slate-100 dark:bg-[#0d1219]/50 rounded-lg border border-slate-200 dark:border-slate-800/60 backdrop-blur-sm">
+<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary/50"></span>
+<h3 class="font-bold text-sm tracking-wide text-slate-700 dark:text-slate-200">ASSIGNED</h3>
+<span class="bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] px-1.5 rounded font-mono">1</span>
+</div>
+<button class="text-slate-400 hover:text-primary transition-colors"><span class="material-icons text-sm">more_horiz</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm hover:border-primary/50 hover:shadow-glow-sm transition-all cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded border border-red-400/20">HIGH</span>
+<span class="text-[10px] font-mono text-slate-500">#392</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug">Generate Unit Tests for Payment Gateway</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex -space-x-2 relative">
+<img alt="Agent 007 Avatar" class="w-6 h-6 rounded-full border border-slate-600 object-cover" data-alt="Portrait of a man representing Agent 007" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgYV2Wn-ByeAaRa8CKLJmdyL2U1EfKSKWpZ60uwUXhLJkXheaf5vbIaEHzQ2rusndE2Vy1dwwX-CxGr7YNuGcuzI_-P0XzDIoaqIaqnUEe8RbSJWF2bXiybM8TsuOS2NPU_mPJVytqjoM7paWi24tIP_jhw65yGMY3fugqwsf1J3y_-k_rFCzeri19ZqajYCuW_HZ67eKb72ypq2ImM_lUgeI15dKHht8t615M9PcZ8K6x3sGRG3KF3mzrnztE_KpT8IkvFgWSxRM"/>
+<div class="absolute -bottom-1 -right-1 w-3 h-3 bg-background-dark rounded-full flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></div>
+</div>
+</div>
+<span class="text-[10px] font-mono text-slate-500">1h ago</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: IN PROGRESS -->
+<div class="flex-1 flex flex-col min-w-[280px] max-w-[350px] bg-slate-100 dark:bg-[#0d1219]/50 rounded-lg border-t-2 border-t-primary border-x border-b border-x-slate-200 border-b-slate-200 dark:border-x-slate-800/60 dark:border-b-slate-800/60 backdrop-blur-sm relative overflow-hidden">
+<!-- Glow effect for active column -->
+<div class="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-primary/10 to-transparent pointer-events-none"></div>
+<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center relative z-10">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(19,109,236,0.8)]"></span>
+<h3 class="font-bold text-sm tracking-wide text-primary">IN PROGRESS</h3>
+<span class="bg-primary/20 text-primary text-[10px] px-1.5 rounded font-mono border border-primary/20">2</span>
+</div>
+<button class="text-slate-400 hover:text-primary transition-colors"><span class="material-icons text-sm">more_horiz</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3 relative z-10">
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-primary/50 shadow-[0_0_15px_rgba(19,109,236,0.1)] hover:shadow-glow-sm transition-all cursor-pointer relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex justify-between items-start mb-2 pl-2">
+<span class="text-[10px] font-mono text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded border border-orange-400/20">MED</span>
+<span class="text-[10px] font-mono text-slate-500">#402</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug pl-2">Scrape API endpoints for schema validation</h4>
+<!-- Progress Bar for active task -->
+<div class="w-full h-1 bg-slate-800 rounded-full mb-3 ml-2 overflow-hidden w-[calc(100%-8px)]">
+<div class="h-full bg-primary w-2/3 animate-[pulse_2s_infinite]"></div>
+</div>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50 pl-2">
+<div class="flex items-center gap-2">
+<div class="relative">
+<img alt="Agent Alpha Avatar" class="w-6 h-6 rounded-full border border-primary object-cover" data-alt="Portrait of a woman representing Agent Alpha" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDosEC3e82LRwQVWhWP9MecgVqST7mP43V4_k0n5KmxYADCe1eXm9t3x55SH4JqEvb1fA_UpHzR96l8soszr1MnFjOXukVSzM5D45LxIimnHPfbpqHx1e09aA0xyd-_ggusCZf7Xbzm3mvnc4l-FA25QviMg2n_Tj97_XrVI8cMTO7_SQLgnpQb4z50T0ObNJMQEYVZEAXfQgEDR40kWImDyIYgCTycShofAb2IbK0jIdIUNAoMVt4Z-D6if-ObZ-nqaDQwCOqytic"/>
+<div class="absolute -bottom-1 -right-1 w-3 h-3 bg-background-dark rounded-full flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_lime]"></div>
+</div>
+</div>
+<span class="text-[10px] text-primary font-mono">Agent-Alpha</span>
+</div>
+<span class="text-[10px] font-mono text-primary animate-pulse">Running...</span>
+</div>
+</div>
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm hover:border-primary/50 hover:shadow-glow-sm transition-all cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">LOW</span>
+<span class="text-[10px] font-mono text-slate-500">#399</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug">Analyze logs for error patterns</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex items-center gap-2">
+<div class="relative">
+<img alt="Agent Beta Avatar" class="w-6 h-6 rounded-full border border-slate-600 object-cover" data-alt="Portrait of a man representing Agent Beta" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDgrPnTZ2IPKNLx0-UJkrMl4bjJyDQDKvlf3dwS31UdbqPYkAiGMSgtgOX-AlmtaVCyHbvIP-zZazE064IJLNDA1SG5hl43Yz51qI0gQfD9vreb5JZ3Hw4rDvmz-pmiThhx-Ypwu-YXrwat6vJtG_M7Ckrk8wileelCGRVSWeGY2pYxF9_3qtRpnn5Bv_rFEtC1d3MxnAjyfAR6C91rZ3BETHfaSOAGtnFn1S2DvqTMdLH8r33IAMN4uYWMQaTM4cnif6gKQMBWtpA"/>
+<div class="absolute -bottom-1 -right-1 w-3 h-3 bg-background-dark rounded-full flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_lime]"></div>
+</div>
+</div>
+</div>
+<span class="text-[10px] font-mono text-slate-500">5m ago</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: REVIEW -->
+<div class="flex-1 flex flex-col min-w-[280px] max-w-[350px] bg-slate-100 dark:bg-[#0d1219]/50 rounded-lg border border-slate-200 dark:border-slate-800/60 backdrop-blur-sm">
+<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-purple-500"></span>
+<h3 class="font-bold text-sm tracking-wide text-slate-700 dark:text-slate-200">REVIEW</h3>
+<span class="bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] px-1.5 rounded font-mono">1</span>
+</div>
+<button class="text-slate-400 hover:text-primary transition-colors"><span class="material-icons text-sm">more_horiz</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm hover:border-primary/50 hover:shadow-glow-sm transition-all cursor-pointer opacity-80 hover:opacity-100">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded border border-purple-400/20">PR #42</span>
+<span class="text-[10px] font-mono text-slate-500">#388</span>
+</div>
+<h4 class="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 leading-snug">Fix race condition in job queue</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex -space-x-2">
+<img alt="Agent Gamma Avatar" class="w-6 h-6 rounded-full border border-slate-600 object-cover" data-alt="Portrait of a person representing Agent Gamma" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCwFca1IIuqs-amayZGkVEyFYhggrP0peO6d_o7SYcYSeIkjyQBhlAUkuR7tubpusPJk2ZU7taEa-bxNRymxYkY2oAFRZbO2SkwymZ_GbU93ySmMhErDgfrn_4XuS1XmBSSsHK5I7QooDfQSC-Zbcv34u2IDuE4HeEU6MVDMhWZxr8n0nNbVogW6n5qVJiLwghFgOufn2QI3y_S88pMmvbqv5Lv5BSNqOW9unj-j_F3aHlFQvxBFiE61xnSLTJt9JXl8_SlVGTItYY"/>
+</div>
+<span class="text-[10px] font-mono text-purple-400">Needs Approval</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: DONE -->
+<div class="flex-1 flex flex-col min-w-[280px] max-w-[350px] bg-slate-100 dark:bg-[#0d1219]/50 rounded-lg border border-slate-200 dark:border-slate-800/60 backdrop-blur-sm">
+<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-green-500"></span>
+<h3 class="font-bold text-sm tracking-wide text-slate-700 dark:text-slate-200">DONE</h3>
+<span class="bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] px-1.5 rounded font-mono">1</span>
+</div>
+<button class="text-slate-400 hover:text-primary transition-colors"><span class="material-icons text-sm">check_circle</span></button>
+</div>
+<div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+<!-- Card -->
+<div class="group bg-white dark:bg-surface-dark p-4 rounded border border-slate-200 dark:border-slate-700 shadow-sm opacity-60 hover:opacity-100 transition-all cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 decoration-slate-400 line-through">LOW</span>
+<span class="text-[10px] font-mono text-slate-500 line-through">#380</span>
+</div>
+<h4 class="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3 leading-snug line-through decoration-slate-600">Init Repository structure</h4>
+<div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/50">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-green-900/30 border border-green-800 flex items-center justify-center text-[10px] text-green-500">✓</div>
+</div>
+<span class="text-[10px] font-mono text-green-600/70">Yesterday</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Sidebar: Live Activity Feed -->
+<aside class="w-80 border-l border-slate-200 dark:border-slate-800 bg-[#0a0f16] flex flex-col z-20 shrink-0 font-mono text-xs">
+<div class="p-4 border-b border-slate-800 bg-[#0d1219] flex justify-between items-center">
+<div class="flex items-center gap-2">
+<span class="material-icons text-primary text-sm animate-spin-slow" style="animation-duration: 4s;">settings_ethernet</span>
+<span class="text-slate-300 font-bold tracking-wide">LIVE TERMINAL</span>
+</div>
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-4 text-slate-400 font-mono">
+<!-- Log Entry -->
+<div class="flex gap-2 opacity-100">
+<span class="text-slate-600 shrink-0">[10:42:15]</span>
+<div class="break-words">
+<span class="text-primary font-bold">System:</span>
+<span class="text-slate-300">Garbage collection initiated. Freeding memory...</span>
+</div>
+</div>
+<!-- Log Entry -->
+<div class="flex gap-2">
+<span class="text-slate-600 shrink-0">[10:42:12]</span>
+<div class="break-words">
+<span class="text-yellow-500 font-bold">Warning:</span>
+<span class="text-slate-300">Rate limit approaching for OpenAI API (85%).</span>
+</div>
+</div>
+<!-- Log Entry -->
+<div class="flex gap-2">
+<span class="text-slate-600 shrink-0">[10:42:05]</span>
+<div class="break-words">
+<span class="text-blue-400 font-bold">Info:</span>
+<span class="text-slate-300">Task-402 moved to <span class="text-primary">IN PROGRESS</span>.</span>
+</div>
+</div>
+<!-- Log Entry -->
+<div class="flex gap-2">
+<span class="text-slate-600 shrink-0">[10:42:01]</span>
+<div class="break-words">
+<span class="text-green-500 font-bold">Agent-Alpha:</span>
+<span class="text-slate-300">Starting SOUL.md analysis...</span>
+<div class="mt-1 p-2 bg-slate-900 rounded border border-slate-800 text-[10px] text-green-400/80 font-mono">
+                        &gt; Reading file contents...<br/>
+                        &gt; Tokenizing input stream...<br/>
+                        &gt; Context window: 4096
+                    </div>
+</div>
+</div>
+<!-- Log Entry -->
+<div class="flex gap-2 opacity-70">
+<span class="text-slate-600 shrink-0">[10:41:55]</span>
+<div class="break-words">
+<span class="text-primary font-bold">System:</span>
+<span class="text-slate-300">WebSocket connection established from 192.168.1.42</span>
+</div>
+</div>
+<!-- Log Entry -->
+<div class="flex gap-2 opacity-50">
+<span class="text-slate-600 shrink-0">[10:41:42]</span>
+<div class="break-words">
+<span class="text-purple-400 font-bold">Agent-Gamma:</span>
+<span class="text-slate-300">Submitted PR #42 for review.</span>
+</div>
+</div>
+<!-- Cursor Effect -->
+<div class="mt-4 flex gap-2 items-center">
+<span class="text-primary">&gt;</span>
+<span class="w-2 h-4 bg-primary animate-pulse"></span>
+</div>
+</div>
+<!-- Input Area -->
+<div class="p-3 border-t border-slate-800 bg-[#0d1219]">
+<div class="flex items-center gap-2 bg-slate-900 rounded px-3 py-2 border border-slate-700 focus-within:border-primary transition-colors">
+<span class="text-slate-500">$</span>
+<input class="bg-transparent border-none text-slate-300 focus:ring-0 p-0 text-xs w-full font-mono placeholder:text-slate-600" placeholder="Enter command..." type="text"/>
+</div>
+</div>
+</aside>
+</body></html>
