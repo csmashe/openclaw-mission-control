@@ -1,0 +1,27 @@
+# Source code (not needed — standalone build is self-contained)
+src/
+resources/
+
+# Development files
+*.ts
+!*.d.ts
+*.tsx
+tsconfig.json
+eslint.config.mjs
+postcss.config.mjs
+components.json
+tailwind.config.*
+
+# Data
+data/
+
+# Environment
+.env*
+
+# Development artifacts
+node_modules/
+.next/cache/
+
+# IDE
+.vscode/
+.idea/

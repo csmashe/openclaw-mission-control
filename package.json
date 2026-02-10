@@ -1,12 +1,24 @@
 {
-  "name": "mission-control",
+  "name": "openclaw-mission-control",
   "version": "0.1.0",
-  "private": true,
+  "description": "Mission Control dashboard for OpenClaw — manage agents, tasks, and missions from a command-center UI",
+  "keywords": ["openclaw", "mission-control", "dashboard", "ai-agents"],
+  "license": "MIT",
+  "bin": {
+    "openclaw-mission-control": "./bin/cli.mjs"
+  },
+  "files": [
+    "bin/",
+    ".next/standalone/",
+    ".next/static/",
+    "public/"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
