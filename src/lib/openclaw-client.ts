@@ -284,7 +284,7 @@ export class OpenClawClient {
 
   // --- JSON-RPC calls ---
 
-  private async call(
+  async call(
     method: string,
     params?: unknown,
     timeoutMs = 30000
@@ -421,6 +421,13 @@ export class OpenClawClient {
     return this.call("sessions.delete", { key });
   }
 
+  async patchSession(
+    key: string,
+    patch: { model?: string | null; [k: string]: unknown }
+  ): Promise<unknown> {
+    return this.call("sessions.patch", { key, ...patch });
+  }
+
   // --- Cron ---
 
   async listCronJobs(): Promise<OpenClawCronJob[]> {
@@ -488,6 +495,98 @@ export class OpenClawClient {
     agentId?: string;
   }): Promise<unknown> {
     return this.call("send", params);
+  }
+
+  // --- Usage & Costs ---
+
+  async getUsageCost(): Promise<unknown> {
+    return this.call("usage.cost", {});
+  }
+
+  // --- TTS ---
+
+  async ttsStatus(): Promise<unknown> {
+    return this.call("tts.status", {});
+  }
+
+  async ttsProviders(): Promise<unknown> {
+    return this.call("tts.providers", {});
+  }
+
+  async ttsConvert(params: {
+    text: string;
+    provider?: string;
+  }): Promise<unknown> {
+    return this.call("tts.convert", params);
+  }
+
+  // --- Config ---
+
+  async configGet(): Promise<unknown> {
+    return this.call("config.get", {});
+  }
+
+  async configSchema(): Promise<unknown> {
+    return this.call("config.schema", {});
+  }
+
+  async configPatch(patch: Record<string, unknown>): Promise<unknown> {
+    return this.call("config.patch", { patch });
+  }
+
+  // --- Exec Approvals ---
+
+  async getExecApprovals(): Promise<unknown> {
+    return this.call("exec.approvals.get", {});
+  }
+
+  async setExecApprovals(params: Record<string, unknown>): Promise<unknown> {
+    return this.call("exec.approvals.set", params);
+  }
+
+  async resolveExecApproval(params: {
+    id: string;
+    decision: "approve" | "reject";
+  }): Promise<unknown> {
+    return this.call("exec.approval.resolve", params);
+  }
+
+  // --- Nodes ---
+
+  async listNodes(): Promise<unknown> {
+    return this.call("node.list", {});
+  }
+
+  async describeNode(nodeId: string): Promise<unknown> {
+    return this.call("node.describe", { nodeId });
+  }
+
+  // --- Logs ---
+
+  async tailLogs(): Promise<unknown> {
+    return this.call("logs.tail", {});
+  }
+
+  // --- Channels ---
+
+  async channelsStatus(): Promise<unknown> {
+    return this.call("channels.status", {});
+  }
+
+  // --- Skills ---
+
+  async skillsStatus(): Promise<unknown> {
+    return this.call("skills.status", {});
+  }
+
+  // --- Cron Runs ---
+
+  async cronRuns(id: string): Promise<unknown> {
+    return this.call("cron.runs", { id });
+  }
+
+  async cronStatus(): Promise<unknown> {
+    return this.call("cron.status", {});
   }
 }
 

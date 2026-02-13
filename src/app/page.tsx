@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTheme } from "next-themes";
 import {
   LayoutDashboard,
   Bot,
   Rocket,
-  ScrollText,
   Settings,
   Plus,
   MoreHorizontal,
@@ -21,7 +20,20 @@ import {
   Monitor,
   Terminal,
   AlertTriangle,
+  Wrench,
+  DollarSign,
+  Shield,
+  Clock,
+  FileText,
+  MessageSquare,
 } from "lucide-react";
+import { ToolsPlayground } from "@/components/views/tools-playground";
+import { CostDashboard } from "@/components/views/cost-dashboard";
+import { ApprovalCenter } from "@/components/views/approval-center";
+import { CronScheduler } from "@/components/views/cron-scheduler";
+import { LogsViewer } from "@/components/views/logs-viewer";
+import { SettingsPanel, getStoredModelPreference } from "@/components/views/settings-panel";
+import { ChatPanel } from "@/components/views/chat-panel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -192,6 +204,16 @@ function ThemeToggle() {
   );
 }
 
+// --- View routing ---
+const VALID_VIEWS = ["board", "agents", "missions", "tools", "usage", "approvals", "cron", "logs", "settings", "chat"] as const;
+type ViewId = (typeof VALID_VIEWS)[number];
+
+function getViewFromHash(): ViewId {
+  if (typeof window === "undefined") return "board";
+  const hash = window.location.hash.replace("#", "");
+  return (VALID_VIEWS as readonly string[]).includes(hash) ? (hash as ViewId) : "board";
+}
+
 // --- Main Component ---
 
 export default function Dashboard() {
@@ -206,7 +228,18 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
-  const [activeView, setActiveView] = useState<"board" | "agents" | "missions">("board");
+  const [activeView, setActiveViewState] = useState<ViewId>(getViewFromHash);
+  const setActiveView = useCallback((view: ViewId) => {
+    setActiveViewState(view);
+    window.location.hash = view === "board" ? "" : view;
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => setActiveViewState(getViewFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -252,7 +285,9 @@ export default function Dashboard() {
     fetchActivity();
     fetchAgents();
     fetchGatewayStatus();
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      // Check if any agent-assigned tasks have completed before fetching
+      try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
       fetchTasks();
       fetchActivity();
     }, 5000);
@@ -261,12 +296,28 @@ export default function Dashboard() {
 
   // --- Task Actions ---
 
-  const createTask = async (data: { title: string; description: string; priority: string }) => {
-    await fetch("/api/tasks", {
+  const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string }) => {
+    const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    const result = await res.json();
+
+    // Auto-dispatch if agent is assigned
+    if (data.assigned_agent_id && result.task?.id) {
+      const pref = getStoredModelPreference();
+      await fetch("/api/tasks/dispatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: result.task.id,
+          agentId: data.assigned_agent_id,
+          ...(pref ? { model: pref.model, provider: pref.provider } : {}),
+        }),
+      });
+    }
+
     await fetchTasks();
     await fetchActivity();
     setShowCreateModal(false);
@@ -289,10 +340,15 @@ export default function Dashboard() {
   };
 
   const dispatchTask = async (taskId: string, agentId: string) => {
+    const pref = getStoredModelPreference();
     const res = await fetch("/api/tasks/dispatch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, agentId }),
+      body: JSON.stringify({
+        taskId,
+        agentId,
+        ...(pref ? { model: pref.model, provider: pref.provider } : {}),
+      }),
     });
     const data = await res.json();
     setShowDispatchModal(null);
@@ -321,9 +377,14 @@ export default function Dashboard() {
 
   const NAV_ITEMS = [
     { id: "board" as const, icon: LayoutDashboard, label: "Dashboard" },
+    { id: "chat" as const, icon: MessageSquare, label: "Chat" },
     { id: "agents" as const, icon: Bot, label: "Agents" },
     { id: "missions" as const, icon: Rocket, label: "Missions" },
-    { id: null, icon: ScrollText, label: "Logs" },
+    { id: "tools" as const, icon: Wrench, label: "Tools" },
+    { id: "usage" as const, icon: DollarSign, label: "Usage" },
+    { id: "approvals" as const, icon: Shield, label: "Approvals" },
+    { id: "cron" as const, icon: Clock, label: "Schedules" },
+    { id: "logs" as const, icon: FileText, label: "Logs" },
   ];
 
   return (
@@ -374,7 +435,17 @@ export default function Dashboard() {
         <div className="flex flex-col gap-3 w-full items-center">
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className="w-10 h-10 rounded flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all">
+              <button
+                onClick={() => setActiveView("settings")}
+                className={`w-10 h-10 rounded flex items-center justify-center transition-all relative group ${
+                  activeView === "settings"
+                    ? "text-primary bg-primary/10 shadow-[0_0_10px_oklch(0.58_0.2_260/0.3)]"
+                    : "text-muted-foreground hover:text-primary hover:bg-primary/5"
+                }`}
+              >
+                {activeView === "settings" && (
+                  <span className="absolute left-0 w-1 h-6 bg-primary rounded-r" />
+                )}
                 <Settings className="w-5 h-5" />
               </button>
             </TooltipTrigger>
@@ -483,6 +554,13 @@ export default function Dashboard() {
             />
           )}
           {activeView === "missions" && <MissionsView />}
+          {activeView === "tools" && <ToolsPlayground />}
+          {activeView === "usage" && <CostDashboard />}
+          {activeView === "approvals" && <ApprovalCenter />}
+          {activeView === "cron" && <CronScheduler />}
+          {activeView === "logs" && <LogsViewer />}
+          {activeView === "settings" && <SettingsPanel />}
+          {activeView === "chat" && <ChatPanel />}
 
           {/* ===== Floating Live Terminal ===== */}
           <aside
@@ -563,6 +641,7 @@ export default function Dashboard() {
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
         onCreate={createTask}
+        agents={agents}
       />
       {showDispatchModal && (
         <DispatchModal
@@ -576,8 +655,8 @@ export default function Dashboard() {
         <TaskDetailModal
           task={showTaskDetail}
           onClose={() => setShowTaskDetail(null)}
-          onMoveToReview={() => { moveTask(showTaskDetail.id, "review"); setShowTaskDetail(null); }}
           onMoveToDone={() => { moveTask(showTaskDetail.id, "done"); setShowTaskDetail(null); }}
+          onRefresh={async () => { await fetchTasks(); const updated = tasks.find(t => t.id === showTaskDetail.id); if (updated) setShowTaskDetail(updated); }}
         />
       )}
     </div>
@@ -716,20 +795,24 @@ function TaskCard({
 }) {
   const showDispatch = task.status === "inbox" && !task.assigned_agent_id;
   const showDone = task.status === "review";
+  const isReview = task.status === "review";
+  const isAgentWorking = isInProgress && !!task.assigned_agent_id;
   const isDone = task.status === "done";
   const priority = getPriorityStyle(task.priority);
 
   return (
     <div
       className={`group bg-card p-4 rounded border shadow-sm hover:shadow-[0_0_15px_oklch(0.58_0.2_260/0.1)] transition-all cursor-pointer relative overflow-hidden ${
-        isInProgress && task.assigned_agent_id
-          ? "border-primary/50"
+        isAgentWorking
+          ? "border-primary/50 animate-[pulse_3s_ease-in-out_infinite]"
+          : isReview
+          ? "border-amber-500/50 shadow-[0_0_10px_oklch(0.75_0.15_85/0.1)]"
           : isDone
           ? "border-border opacity-60 hover:opacity-100"
           : "border-border hover:border-primary/50"
       }`}
-      draggable
-      onDragStart={onDragStart}
+      draggable={!isAgentWorking}
+      onDragStart={isAgentWorking ? undefined : onDragStart}
       onClick={onClick}
     >
       {/* Active task left accent */}
@@ -790,8 +873,11 @@ function TaskCard({
         </div>
 
         <div className="flex items-center gap-1">
-          {isInProgress && task.assigned_agent_id && (
-            <span className="text-[10px] font-mono text-primary animate-pulse">Running...</span>
+          {isAgentWorking && (
+            <span className="text-[10px] font-mono text-primary animate-pulse">🤖 Working...</span>
+          )}
+          {isReview && (
+            <span className="text-[10px] font-mono text-amber-500">📋 Needs Review</span>
           )}
           {showDispatch && (
             <Button
@@ -833,22 +919,30 @@ function TaskCard({
 
 // --- Create Task Modal ---
 
-function CreateTaskModal({ open, onOpenChange, onCreate }: {
+function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (data: { title: string; description: string; priority: string }) => void;
+  onCreate: (data: { title: string; description: string; priority: string; assigned_agent_id?: string }) => void;
+  agents: Agent[];
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
+  const [agentId, setAgentId] = useState("none");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    onCreate({ title: title.trim(), description: description.trim(), priority });
+    onCreate({
+      title: title.trim(),
+      description: description.trim(),
+      priority,
+      ...(agentId !== "none" ? { assigned_agent_id: agentId } : {}),
+    });
     setTitle("");
     setDescription("");
     setPriority("medium");
+    setAgentId("none");
   };
 
   return (
@@ -880,19 +974,42 @@ function CreateTaskModal({ open, onOpenChange, onCreate }: {
                 placeholder="Optional details..."
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Priority</label>
-              <Select value={priority} onValueChange={setPriority}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex gap-3">
+              <div className="space-y-2 flex-1">
+                <label className="text-sm font-medium">Priority</label>
+                <Select value={priority} onValueChange={setPriority}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 flex-1">
+                <label className="text-sm font-medium">Assign to Agent</label>
+                <Select value={agentId} onValueChange={setAgentId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="No agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      <span className="text-muted-foreground">Unassigned</span>
+                    </SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        <span className="flex items-center gap-1.5">
+                          <Bot className="w-3 h-3" />
+                          {a.name || a.id}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1005,37 +1122,108 @@ function DispatchModal({ task, agents, onClose, onDispatch }: {
 
 // --- Task Detail Modal ---
 
-function TaskDetailModal({ task, onClose, onMoveToReview, onMoveToDone }: {
+function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
   onClose: () => void;
-  onMoveToReview: () => void;
   onMoveToDone: () => void;
+  onRefresh: () => void;
 }) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newComment, setNewComment] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
+  const [reworkFeedback, setReworkFeedback] = useState("");
+  const [showRework, setShowRework] = useState(false);
+  const [reworking, setReworking] = useState(false);
+  const [prevStatus, setPrevStatus] = useState(task.status);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetch(`/api/tasks/comments?taskId=${task.id}`)
-      .then((res) => res.json())
-      .then((data) => { setComments(data.comments || []); setLoading(false); })
-      .catch(() => setLoading(false));
-
-    const interval = setInterval(() => {
-      fetch(`/api/tasks/comments?taskId=${task.id}`)
-        .then((res) => res.json())
-        .then((data) => setComments(data.comments || []))
-        .catch(() => {});
-    }, 3000);
-    return () => clearInterval(interval);
+  const fetchComments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks/comments?taskId=${task.id}`);
+      const data = await res.json();
+      setComments(data.comments || []);
+    } catch {} // retry on next interval
   }, [task.id]);
 
+  useEffect(() => {
+    fetchComments().then(() => setLoading(false));
+    const interval = setInterval(async () => {
+      await fetchComments();
+      onRefresh(); // Also refresh task status
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [fetchComments, onRefresh]);
+
+  // Auto-scroll when new comments arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [comments.length]);
+
+  // Detect status change
+  useEffect(() => {
+    if (task.status !== prevStatus) {
+      setPrevStatus(task.status);
+    }
+  }, [task.status, prevStatus]);
+
+  const addUserComment = async () => {
+    if (!newComment.trim() || sendingComment) return;
+    setSendingComment(true);
+    try {
+      await fetch("/api/tasks/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id, content: newComment.trim() }),
+      });
+      setNewComment("");
+      await fetchComments();
+    } catch {} finally {
+      setSendingComment(false);
+    }
+  };
+
+  const requestRework = async () => {
+    if (!reworkFeedback.trim() || reworking) return;
+    setReworking(true);
+    try {
+      await fetch("/api/tasks/rework", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id, feedback: reworkFeedback.trim() }),
+      });
+      setReworkFeedback("");
+      setShowRework(false);
+      await fetchComments();
+      onRefresh();
+    } catch {} finally {
+      setReworking(false);
+    }
+  };
+
   const priority = getPriorityStyle(task.priority);
+  const isAgentWorking = task.status === "in_progress" && !!task.assigned_agent_id;
+  const isReview = task.status === "review";
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>{task.title}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {task.title}
+            {isAgentWorking && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-[11px] text-primary font-mono animate-pulse">
+                🤖 Agent working...
+              </span>
+            )}
+            {isReview && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-500 font-mono">
+                📋 Ready for review
+              </span>
+            )}
+          </DialogTitle>
           <DialogDescription className="flex items-center gap-2 pt-1">
             <Badge variant="outline" className={priority.className}>
               {priority.label}
@@ -1055,19 +1243,37 @@ function TaskDetailModal({ task, onClose, onMoveToReview, onMoveToDone }: {
           </div>
         )}
 
+        {/* Agent Working Indicator */}
+        {isAgentWorking && (
+          <div className="flex items-center gap-3 p-3 rounded-md bg-primary/5 border border-primary/20">
+            <div className="relative">
+              <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary flex items-center justify-center">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-background rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+              </div>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-primary">{task.assigned_agent_id} is working on this task</div>
+              <div className="text-[11px] text-muted-foreground">Response will appear below when complete. Task will auto-move to Review.</div>
+            </div>
+          </div>
+        )}
+
         {/* Comments */}
-        <div className="space-y-2">
+        <div className="flex-1 space-y-2 min-h-0">
           <h4 className="text-sm font-medium text-muted-foreground">
-            Comments ({comments.length})
+            Activity ({comments.length})
           </h4>
           {loading ? (
             <div className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading...</div>
           ) : comments.length === 0 ? (
             <div className="text-sm text-muted-foreground py-4 text-center">
-              No comments yet. Dispatch to an agent to see responses here.
+              No activity yet. Assign an agent to start working on this task.
             </div>
           ) : (
-            <ScrollArea className="max-h-[300px]">
+            <ScrollArea className="max-h-[250px]" ref={scrollRef}>
               <div className="space-y-2">
                 {comments.map((c) => (
                   <div
@@ -1077,16 +1283,16 @@ function TaskDetailModal({ task, onClose, onMoveToReview, onMoveToDone }: {
                         ? "bg-primary/5 border-primary/20"
                         : c.author_type === "system"
                         ? "bg-blue-500/5 border-blue-500/20"
-                        : "bg-muted border-border"
+                        : "bg-amber-500/5 border-amber-500/20"
                     }`}
                   >
                     <div className={`text-[11px] font-bold uppercase mb-1 ${
-                      c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-muted-foreground"
+                      c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
                     }`}>
-                      {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 User"}
+                      {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
                     </div>
-                    <div className="text-foreground whitespace-pre-wrap leading-relaxed">
-                      {c.content.length > 500 ? c.content.slice(0, 500) + "..." : c.content}
+                    <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
+                      {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-1">
                       {timeAgo(c.created_at)}
@@ -1098,17 +1304,67 @@ function TaskDetailModal({ task, onClose, onMoveToReview, onMoveToDone }: {
           )}
         </div>
 
-        <DialogFooter>
+        {/* User Comment Input */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="flex-1 px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addUserComment()}
+            placeholder="Add a comment..."
+          />
+          <Button
+            size="sm"
+            disabled={!newComment.trim() || sendingComment}
+            onClick={addUserComment}
+          >
+            <Send className="w-3 h-3" />
+          </Button>
+        </div>
+
+        {/* Rework Section (visible in review status) */}
+        {isReview && showRework && (
+          <div className="space-y-2 p-3 rounded-md bg-amber-500/5 border border-amber-500/20">
+            <label className="text-sm font-medium text-amber-500">🔄 Rework Instructions</label>
+            <textarea
+              className="w-full px-3 py-2 rounded-md border border-amber-500/30 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 min-h-[80px] resize-y"
+              value={reworkFeedback}
+              onChange={(e) => setReworkFeedback(e.target.value)}
+              placeholder="Describe what needs to be changed or improved..."
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => { setShowRework(false); setReworkFeedback(""); }}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={!reworkFeedback.trim() || reworking}
+                onClick={requestRework}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {reworking ? "Sending..." : "Send to Agent"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
-          {task.status === "in_progress" && (
-            <Button onClick={onMoveToReview}>Move to Review</Button>
+          {isReview && !showRework && (
+            <Button
+              variant="outline"
+              onClick={() => setShowRework(true)}
+              className="border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
+            >
+              🔄 Request Rework
+            </Button>
           )}
-          {task.status === "review" && (
+          {isReview && (
             <Button
               onClick={onMoveToDone}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
-              <CheckCircle2 className="w-4 h-4 mr-1" /> Mark as Done
+              <CheckCircle2 className="w-4 h-4 mr-1" /> Approve & Done
             </Button>
           )}
         </DialogFooter>

@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
+import { getAgentTaskMonitor } from "@/lib/agent-task-monitor";
 import {
   getTask,
   updateTask,
   addComment,
   logActivity,
+  listComments,
 } from "@/lib/db";
 
 // POST /api/tasks/dispatch - Send a task to an agent for processing
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { taskId, agentId } = body;
+    const { taskId, agentId, feedback, model, provider } = body;
 
     if (!taskId || !agentId) {
       return NextResponse.json(
@@ -29,117 +31,106 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate a unique session key for this task
-    const sessionKey = `mission-control:${agentId}:task-${taskId.slice(0, 8)}`;
+    // Generate or reuse session key
+    // Gateway canonicalizes keys as agent:<agentId>:<sessionKey>
+    const sessionKey =
+      task.openclaw_session_key ||
+      `agent:${agentId}:mission-control:${agentId}:task-${taskId.slice(0, 8)}`;
 
-    // Update task to assigned with the session key and agent
+    // If this is a rework re-dispatch, add the user's feedback as a comment first
+    const isRework = !!feedback;
+    if (isRework) {
+      addComment({
+        id: uuidv4(),
+        task_id: taskId,
+        author_type: "user",
+        content: feedback,
+      });
+
+      logActivity({
+        id: uuidv4(),
+        type: "task_rework",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `User requested rework on "${task.title}"`,
+      });
+    }
+
+    // Update task to assigned → in_progress
     updateTask(taskId, {
-      status: "assigned",
+      status: "in_progress",
       assigned_agent_id: agentId,
       openclaw_session_key: sessionKey,
     });
 
     logActivity({
       id: uuidv4(),
-      type: "task_assigned",
+      type: isRework ? "task_rework_started" : "task_in_progress",
       task_id: taskId,
       agent_id: agentId,
-      message: `Task "${task.title}" assigned to agent "${agentId}"`,
+      message: isRework
+        ? `Agent "${agentId}" re-processing "${task.title}" with feedback`
+        : `Agent "${agentId}" started working on "${task.title}"`,
       metadata: { sessionKey },
     });
 
-    // Connect to OpenClaw and send the task to the agent
+    // Build the prompt
+    const prompt = isRework
+      ? buildReworkPrompt(task, feedback, taskId)
+      : buildTaskPrompt(task);
+
+    // Connect and send to agent
     const client = getOpenClawClient();
     await client.connect();
 
-    const prompt = buildTaskPrompt(task);
-
-    // Move to in_progress
-    updateTask(taskId, { status: "in_progress" });
-
-    logActivity({
-      id: uuidv4(),
-      type: "task_in_progress",
-      task_id: taskId,
-      agent_id: agentId,
-      message: `Agent "${agentId}" started working on "${task.title}"`,
-    });
-
-    // Send to agent via chat.send
     try {
+      // If a model override is specified, patch the session before sending
+      if (model) {
+        const modelRef = provider ? `${provider}/${model}` : model;
+        try {
+          await client.patchSession(sessionKey, { model: modelRef });
+          console.log(`[dispatch] Set model override: ${modelRef} for session: ${sessionKey}`);
+        } catch (patchErr) {
+          console.warn(`[dispatch] Failed to set model override: ${patchErr}`);
+          // Continue anyway — fall back to default model
+        }
+      }
+
       await client.sendMessage(sessionKey, prompt);
 
-      // Add a comment that the message was sent
       addComment({
         id: uuidv4(),
         task_id: taskId,
         agent_id: agentId,
         author_type: "system",
-        content: `Task sent to agent ${agentId} via session ${sessionKey}`,
+        content: isRework
+          ? `🔄 Rework request sent to agent ${agentId}. Monitoring for completion...`
+          : `🚀 Task dispatched to agent ${agentId}. Monitoring for completion...`,
       });
 
-      // Move to review once the agent has been notified
-      // (In a real flow, you'd wait for the agent to complete, 
-      // but for demo we auto-advance after sending)
-      setTimeout(async () => {
-        try {
-          // Fetch the chat history to get the agent's response
-          const history = await client.getChatHistory(sessionKey);
-          const assistantMessages = history.filter(
-            (m) => m.role === "assistant"
-          );
-          
-          if (assistantMessages.length > 0) {
-            const latestResponse = assistantMessages[assistantMessages.length - 1];
-            
-            // Add agent response as comment
-            addComment({
-              id: uuidv4(),
-              task_id: taskId,
-              agent_id: agentId,
-              author_type: "agent",
-              content: latestResponse.content,
-            });
-
-            // Move to review
-            updateTask(taskId, { status: "review" });
-
-            logActivity({
-              id: uuidv4(),
-              type: "task_review",
-              task_id: taskId,
-              agent_id: agentId,
-              message: `Agent "${agentId}" completed work on "${task.title}" — moved to review`,
-            });
-          }
-        } catch {
-          // If we can't get history yet, still move to review
-          updateTask(taskId, { status: "review" });
-          logActivity({
-            id: uuidv4(),
-            type: "task_review",
-            task_id: taskId,
-            agent_id: agentId,
-            message: `Task "${task.title}" moved to review (agent processing)`,
-          });
-        }
-      }, 15000); // Wait 15 seconds for agent to respond
+      // Register with the AgentTaskMonitor for event-driven completion
+      const monitor = getAgentTaskMonitor();
+      await monitor.startMonitoring(taskId, sessionKey, agentId);
 
       return NextResponse.json({
         ok: true,
         status: "dispatched",
         sessionKey,
-        message: "Task sent to agent. Will auto-advance to review after processing.",
+        monitoring: true,
+        isRework,
+        message: "Task sent to agent. Will auto-move to review when complete.",
       });
     } catch (sendError) {
-      // If send fails, still log it
       addComment({
         id: uuidv4(),
         task_id: taskId,
         agent_id: agentId,
         author_type: "system",
-        content: `Failed to send to agent: ${String(sendError)}`,
+        content: `❌ Failed to send to agent: ${String(sendError)}`,
       });
+
+      // Revert to previous status on send failure
+      updateTask(taskId, { status: isRework ? "review" : "inbox" });
 
       return NextResponse.json(
         {
@@ -158,7 +149,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function buildTaskPrompt(task: { title: string; description: string; priority: string }): string {
+function buildTaskPrompt(task: {
+  title: string;
+  description: string;
+  priority: string;
+}): string {
   return `## Task Assignment
 
 **Title:** ${task.title}
@@ -170,4 +165,43 @@ ${task.description || "No additional details provided."}
 ---
 
 Please complete this task. Provide a clear, actionable response with your findings or deliverables. Be concise but thorough.`;
+}
+
+function buildReworkPrompt(
+  task: { title: string; description: string; priority: string },
+  feedback: string,
+  taskId: string
+): string {
+  // Get previous comments for context
+  const comments = listComments(taskId);
+  const commentHistory = comments
+    .filter((c) => c.author_type !== "system")
+    .map((c) => {
+      const prefix =
+        c.author_type === "agent" ? "🤖 Agent" : "👤 User";
+      return `${prefix}: ${c.content}`;
+    })
+    .join("\n\n");
+
+  return `## Task Rework Request
+
+**Title:** ${task.title}
+**Priority:** ${task.priority.toUpperCase()}
+
+**Original Description:**
+${task.description || "No additional details provided."}
+
+---
+
+### Previous Discussion:
+${commentHistory || "No previous comments."}
+
+---
+
+### Rework Feedback:
+${feedback}
+
+---
+
+Please address the feedback above and provide an updated response. Consider all previous discussion context.`;
 }

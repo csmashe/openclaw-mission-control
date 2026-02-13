@@ -38,6 +38,11 @@
   --sidebar-accent-foreground: oklch(0.2 0.04 265);
   --sidebar-border: oklch(0.92 0.01 255);
   --sidebar-ring: oklch(0.52 0.18 260);
+
+  /* Mission Control custom colors */
+  --mc-surface: oklch(0.95 0.003 248);
+  --mc-terminal-bg: oklch(0.92 0.005 248);
+  --mc-glow: oklch(0.58 0.2 260 / 0.15);
 }
 
 /* ===== Dark mode ===== */
@@ -73,6 +78,11 @@
   --sidebar-accent-foreground: oklch(0.93 0.005 248);
   --sidebar-border: oklch(0.28 0.025 255);
   --sidebar-ring: oklch(0.58 0.2 260);
+
+  /* Mission Control custom colors */
+  --mc-surface: oklch(0.12 0.015 250);
+  --mc-terminal-bg: oklch(0.09 0.012 250);
+  --mc-glow: oklch(0.58 0.2 260 / 0.2);
 }
 
 /* ===== Theme mapping ===== */
@@ -116,22 +126,22 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Custom Mission Control colors */
-  --color-mc-surface: oklch(0.95 0.003 248);
-  --color-mc-terminal-bg: oklch(0.92 0.005 248);
-  --color-mc-glow: oklch(0.58 0.2 260 / 0.15);
+  /* Custom Mission Control colors — reference CSS variables for dark mode support */
+  --color-mc-surface: var(--mc-surface);
+  --color-mc-terminal-bg: var(--mc-terminal-bg);
+  --color-mc-glow: var(--mc-glow);
+
+  /* Status colors */
+  --color-success: oklch(0.72 0.19 142);
+  --color-warning: oklch(0.78 0.18 85);
+  --color-danger: oklch(0.65 0.24 27);
 
   /* Custom fonts */
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
-/* Dark overrides for custom colors */
-.dark {
-  --color-mc-surface: oklch(0.12 0.015 250);
-  --color-mc-terminal-bg: oklch(0.09 0.012 250);
-  --color-mc-glow: oklch(0.58 0.2 260 / 0.2);
-}
+/* Dark overrides for custom colors are now handled via CSS variables in .dark {} above */
 
 /* ===== Base styles ===== */
 @layer base {
