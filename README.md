@@ -158,9 +158,10 @@ The production build uses Next.js standalone output for minimal footprint and fa
 
 | Environment Variable   | Required | Default                | Description                                |
 | ---------------------- | -------- | ---------------------- | ------------------------------------------ |
-| `OPENCLAW_GATEWAY_URL` | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway     |
-| `OPENCLAW_AUTH_TOKEN`  | Yes      | —                      | Auth token from your gateway's config file |
-| `PORT`                 | No       | `3000`                 | Port number for the dashboard              |
+| `OPENCLAW_GATEWAY_URL` | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway                      |
+| `OPENCLAW_AUTH_TOKEN`  | Yes      | —                      | Auth token from your gateway's config file                  |
+| `OPENCLAW_API_TOKEN`   | No       | `OPENCLAW_AUTH_TOKEN`  | Token required by privileged Mission Control API endpoints |
+| `PORT`                 | No       | `3000`                 | Port number for the dashboard                               |
 
 ### Finding Your Auth Token
 
@@ -171,6 +172,15 @@ Your OpenClaw auth token is in your gateway configuration file (usually `~/.claw
   "auth_token": "your_token_here"
 }
 ```
+
+### API Authentication for Privileged Routes
+
+`/api/openclaw/*` and `/api/chat` now require an API token in either:
+
+- `Authorization: Bearer <token>`
+- `x-openclaw-token: <token>`
+
+By default this token is `OPENCLAW_AUTH_TOKEN`, or you can set `OPENCLAW_API_TOKEN` to use a separate value.
 
 ---
 
