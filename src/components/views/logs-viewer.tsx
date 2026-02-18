@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 interface LogLine {
   id: number;
@@ -112,32 +113,37 @@ export function LogsViewer() {
 
   const fetchLogs = useCallback(async () => {
     if (paused) return;
+
     try {
       const res = await fetch("/api/openclaw/logs");
+      if (!res.ok) throw new Error(`Failed to fetch logs (${res.status})`);
+
       const data = await res.json();
       const parsed = parseLogLines(data.logs);
+
       // Assign unique IDs and append
       const newLines = parsed.map((l) => ({
         ...l,
         id: logIdCounter.current++,
       }));
+
       setLogs((prev) => {
         const combined = [...prev, ...newLines];
         // Keep last 500 lines
         return combined.slice(-500);
       });
-    } catch {
-      // Silent fail for log polling
     } finally {
       setLoading(false);
     }
   }, [paused]);
 
-  useEffect(() => {
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 5000);
-    return () => clearInterval(interval);
-  }, [fetchLogs]);
+  useAdaptivePolling({
+    poll: fetchLogs,
+    intervalMs: 5_000,
+    hiddenIntervalMs: 20_000,
+    maxBackoffMs: 60_000,
+    enabled: !paused,
+  });
 
   // Auto-scroll
   useEffect(() => {

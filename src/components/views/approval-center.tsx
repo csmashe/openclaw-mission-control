@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Shield,
   ShieldCheck,
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,8 @@ export function ApprovalCenter() {
   const fetchApprovals = useCallback(async () => {
     try {
       const res = await fetch("/api/openclaw/approvals");
+      if (!res.ok) throw new Error(`Failed to fetch approvals (${res.status})`);
+
       const data = await res.json();
       const items: ApprovalRequest[] = Array.isArray(data.approvals)
         ? data.approvals
@@ -84,18 +87,21 @@ export function ApprovalCenter() {
       const resolved = items.filter((a) => a.decision || a.status === "resolved");
       setApprovals(pending);
       setHistory(resolved);
-    } catch {
+    } catch (err) {
       setApprovals([]);
+      setHistory([]);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchApprovals();
-    const interval = setInterval(fetchApprovals, 3000);
-    return () => clearInterval(interval);
-  }, [fetchApprovals]);
+  useAdaptivePolling({
+    poll: fetchApprovals,
+    intervalMs: 3_000,
+    hiddenIntervalMs: 20_000,
+    maxBackoffMs: 60_000,
+  });
 
   const resolveApproval = async (id: string, decision: "approve" | "reject") => {
     setActionLoading(id);
@@ -105,12 +111,24 @@ export function ApprovalCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, decision }),
       });
-      await fetchApprovals();
+      try {
+        await fetchApprovals();
+      } catch (err) {
+        console.error("Failed to refresh approvals after resolve", err);
+      }
     } finally {
       setActionLoading(null);
       setConfirmDialog(null);
     }
   };
+
+  const handleManualRefresh = useCallback(async () => {
+    try {
+      await fetchApprovals();
+    } catch (err) {
+      console.error("Manual approvals refresh failed", err);
+    }
+  }, [fetchApprovals]);
 
   const pendingCount = approvals.length;
 
@@ -137,7 +155,7 @@ export function ApprovalCenter() {
                 {pendingCount} Pending
               </Badge>
             )}
-            <Button variant="outline" size="sm" onClick={fetchApprovals} className="gap-1.5">
+            <Button variant="outline" size="sm" onClick={handleManualRefresh} className="gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
