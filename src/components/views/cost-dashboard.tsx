@@ -170,8 +170,8 @@ export function CostDashboard() {
   const periodDays = period === "today" ? 1 : period === "7d" ? 7 : 30;
   const selectedDays = daily.slice(-periodDays);
 
-  const sum = (key: string): number =>
-    selectedDays.reduce((acc, row) => acc + (Number(row[key]) || 0), 0);
+  const sum = (key: "input" | "output" | "totalCost" | "totalTokens"): number =>
+    selectedDays.reduce((acc, row) => acc + (Number(row[key] ?? 0) || 0), 0);
 
   const inputTokensRaw = sum("input");
   const outputTokensRaw = sum("output");
