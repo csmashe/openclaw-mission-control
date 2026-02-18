@@ -1209,7 +1209,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col min-h-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {task.title}
@@ -1262,46 +1262,48 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
         )}
 
         {/* Comments */}
-        <div className="flex-1 space-y-2 min-h-0">
-          <h4 className="text-sm font-medium text-muted-foreground">
+        <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
+          <h4 className="text-sm font-medium text-muted-foreground shrink-0">
             Activity ({comments.length})
           </h4>
-          {loading ? (
-            <div className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading...</div>
-          ) : comments.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">
-              No activity yet. Assign an agent to start working on this task.
-            </div>
-          ) : (
-            <ScrollArea className="max-h-[250px]" ref={scrollRef}>
-              <div className="space-y-2">
-                {comments.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`p-3 rounded-md text-sm border ${
-                      c.author_type === "agent"
-                        ? "bg-primary/5 border-primary/20"
-                        : c.author_type === "system"
-                        ? "bg-blue-500/5 border-blue-500/20"
-                        : "bg-amber-500/5 border-amber-500/20"
-                    }`}
-                  >
-                    <div className={`text-[11px] font-bold uppercase mb-1 ${
-                      c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
-                    }`}>
-                      {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
-                    </div>
-                    <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
-                      {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-1">
-                      {timeAgo(c.created_at)}
-                    </div>
-                  </div>
-                ))}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {loading ? (
+              <div className="h-full text-sm text-muted-foreground animate-pulse py-4 text-center overflow-y-auto">Loading...</div>
+            ) : comments.length === 0 ? (
+              <div className="h-full text-sm text-muted-foreground py-4 text-center overflow-y-auto">
+                No activity yet. Assign an agent to start working on this task.
               </div>
-            </ScrollArea>
-          )}
+            ) : (
+              <ScrollArea className="h-full" ref={scrollRef}>
+                <div className="space-y-2 pr-3">
+                  {comments.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`p-3 rounded-md text-sm border ${
+                        c.author_type === "agent"
+                          ? "bg-primary/5 border-primary/20"
+                          : c.author_type === "system"
+                          ? "bg-blue-500/5 border-blue-500/20"
+                          : "bg-amber-500/5 border-amber-500/20"
+                      }`}
+                    >
+                      <div className={`text-[11px] font-bold uppercase mb-1 ${
+                        c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
+                      }`}>
+                        {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
+                      </div>
+                      <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
+                        {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {timeAgo(c.created_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
         </div>
 
         {/* User Comment Input */}
