@@ -168,11 +168,24 @@ The production build uses Next.js standalone output for minimal footprint and fa
 
 ### Finding Your Gateway Token
 
-Your OpenClaw gateway token is in your gateway configuration file (usually `~/.clawdbot/clawdbot.json`):
+Your OpenClaw gateway token is in your gateway config (usually `~/.openclaw/openclaw.json`) under `gateway.auth.token`.
+
+You can inspect it with:
+
+```bash
+openclaw gateway config get
+```
+
+Config shape example:
 
 ```json
 {
-  "auth_token": "your_token_here"
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "your_token_here"
+    }
+  }
 }
 ```
 
