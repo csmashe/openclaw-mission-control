@@ -46,3 +46,7 @@ next-env.d.ts
 
 # database
 data/
+# Mission Control runtime DB (do not track)
+data/mission-control.db
+data/mission-control.db-wal
+data/mission-control.db-shm
