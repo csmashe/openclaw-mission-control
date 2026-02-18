@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
 type ToolHandler = (
   client: ReturnType<typeof getOpenClawClient>,
   args: Record<string, unknown>
@@ -8,7 +15,14 @@ type ToolHandler = (
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   "sessions.list": (client, args) => {
-    const agentId = typeof args.agentId === "string" ? args.agentId : undefined;
+    if (
+      args.agentId !== undefined &&
+      (typeof args.agentId !== "string" || args.agentId.trim().length === 0)
+    ) {
+      throw new ValidationError("sessions.list args.agentId must be a non-empty string");
+    }
+
+    const agentId = typeof args.agentId === "string" ? args.agentId.trim() : undefined;
     return client.listSessions(agentId ? { agentId } : undefined);
   },
   "sessions.preview": (client, args) => {
@@ -17,7 +31,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       : [];
 
     if (keys.length === 0) {
-      throw new Error("sessions.preview requires a non-empty string[] in args.keys");
+      throw new ValidationError("sessions.preview requires a non-empty string[] in args.keys");
     }
 
     return client.previewSessions(keys);
@@ -66,6 +80,13 @@ export async function POST(request: NextRequest) {
     const result = await handler(client, args);
     return NextResponse.json({ ok: true, result });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: String(error) },
       { status: 500 }
