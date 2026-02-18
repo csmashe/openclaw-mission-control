@@ -110,7 +110,8 @@ export class OpenClawClient {
 
     try {
       this.deviceAuth = loadOrCreateGatewayDeviceAuth();
-    } catch {
+    } catch (err) {
+      console.warn("[openclaw-client] Failed to load/create gateway device auth; continuing without device auth", err);
       this.deviceAuth = null;
     }
   }
@@ -670,8 +671,16 @@ export function getOpenClawClient(): OpenClawClient {
   if (!clientInstance) {
     const url =
       process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789";
-    const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
-    clientInstance = new OpenClawClient(url, { gatewayToken });
+
+    let gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (!gatewayToken && process.env.OPENCLAW_AUTH_TOKEN) {
+      gatewayToken = process.env.OPENCLAW_AUTH_TOKEN;
+      console.warn(
+        "[openclaw-client] OPENCLAW_AUTH_TOKEN is deprecated for gateway auth; please use OPENCLAW_GATEWAY_TOKEN"
+      );
+    }
+
+    clientInstance = new OpenClawClient(url, { gatewayToken: gatewayToken || "" });
   }
   return clientInstance;
 }

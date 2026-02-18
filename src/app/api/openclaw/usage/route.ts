@@ -19,7 +19,7 @@ export async function GET() {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: String(error), usage: null, cost: null },
+      { error: String(error), usage: null, cost: null, sessions: null },
       { status: 500 }
     );
   }

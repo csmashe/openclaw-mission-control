@@ -165,7 +165,7 @@ export function CostDashboard() {
   // Extract whatever data the gateway returns
   const usage = (data?.usage || {}) as Record<string, unknown>;
   const cost = (data?.cost || {}) as Record<string, unknown>;
-  const daily = (cost.daily as Array<CostDailyRow>) || [];
+  const daily = Array.isArray(cost.daily) ? (cost.daily as Array<CostDailyRow>) : [];
 
   const periodDays = period === "today" ? 1 : period === "7d" ? 7 : 30;
   const selectedDays = daily.slice(-periodDays);
@@ -178,37 +178,62 @@ export function CostDashboard() {
   const totalCostRaw = sum("totalCost");
 
   const inputTokens =
-    inputTokensRaw || (usage.inputTokens as number) || (usage.input_tokens as number) || 0;
+    inputTokensRaw ??
+    (usage.inputTokens as number | undefined | null) ??
+    (usage.input_tokens as number | undefined | null) ??
+    0;
   const outputTokens =
-    outputTokensRaw || (usage.outputTokens as number) || (usage.output_tokens as number) || 0;
-  const totalCost = totalCostRaw || (cost.totalCost as number) || (cost.total as number) || (cost.cost as number) || 0;
+    outputTokensRaw ??
+    (usage.outputTokens as number | undefined | null) ??
+    (usage.output_tokens as number | undefined | null) ??
+    0;
+  const totalCost =
+    totalCostRaw ??
+    (cost.totalCost as number | undefined | null) ??
+    (cost.total as number | undefined | null) ??
+    (cost.cost as number | undefined | null) ??
+    0;
 
-  const sessionsFromList = Array.isArray(data?.sessions) ? data!.sessions!.length : 0;
+  const sessionsFromList = Array.isArray(data?.sessions) ? data.sessions.length : undefined;
   const sessions =
-    sessionsFromList ||
-    (usage.sessions as number) ||
-    (usage.activeSessions as number) ||
+    sessionsFromList ??
+    (usage.sessions as number | undefined | null) ??
+    (usage.activeSessions as number | undefined | null) ??
     0;
 
   const dailyData = selectedDays.map((row) => {
     const date = String(row.date || "");
+    const total = row.totalTokens;
+    const value =
+      total !== null && total !== undefined
+        ? Number(total)
+        : (Number(row.input ?? 0) + Number(row.output ?? 0));
+
     return {
       label: date ? date.slice(5) : "—",
-      value: Number(row.totalTokens) || 0,
+      value: Number.isFinite(value) ? value : 0,
       color: "oklch(0.58 0.2 260)",
     };
   });
 
-  const providerWindows =
-    ((usage.providers as Array<{ provider?: string; displayName?: string; windows?: Array<{ label?: string; usedPercent?: number }> }>) || [])
-      .flatMap((p) =>
-        (p.windows || []).map((w) => ({
-          label: `${p.displayName || p.provider || "provider"} ${w.label || ""}`.trim(),
-          value: Number(w.usedPercent) || 0,
-          color: "oklch(0.58 0.2 260)",
-        }))
-      )
-      .filter((w) => w.value > 0);
+  const providers = Array.isArray(usage.providers)
+    ? (usage.providers as Array<{
+        provider?: string;
+        displayName?: string;
+        windows?: Array<{ label?: string; usedPercent?: number }>;
+      }>)
+    : [];
+
+  const providerWindows = providers
+    .flatMap((p) => {
+      const windows = Array.isArray(p.windows) ? p.windows : [];
+      return windows.map((w) => ({
+        label: `${p.displayName || p.provider || "provider"} ${w.label || ""}`.trim(),
+        value: Number(w.usedPercent) || 0,
+        color: "oklch(0.58 0.2 260)",
+      }));
+    })
+    .filter((w) => w.value > 0);
 
   const sessionsByAgent = (() => {
     // Prefer period-aware cost breakdown when available.
@@ -217,7 +242,11 @@ export function CostDashboard() {
       const byAgent = row.byAgent || row.by_agent;
       if (!byAgent || typeof byAgent !== "object") continue;
       for (const [agent, metrics] of Object.entries(byAgent)) {
-        const inc = Number(metrics?.totalTokens) || Number(metrics?.totalCost) || 0;
+        const tokenOrCost =
+          metrics?.totalTokens !== null && metrics?.totalTokens !== undefined
+            ? metrics.totalTokens
+            : metrics?.totalCost;
+        const inc = Number(tokenOrCost ?? 0);
         fromDaily.set(agent.toLowerCase(), (fromDaily.get(agent.toLowerCase()) || 0) + inc);
       }
     }

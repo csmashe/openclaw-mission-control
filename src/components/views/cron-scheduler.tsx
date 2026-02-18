@@ -91,7 +91,7 @@ function scheduleToHuman(schedule: string | ScheduleObject): string {
     if (schedule.kind === "every" && schedule.everyMs) {
       return `Every ${formatMs(schedule.everyMs)}`;
     }
-    if (schedule.kind === "cron" && (schedule.cron || schedule.expr)) {
+    if (schedule.cron || schedule.expr) {
       return cronToHuman(schedule.cron || schedule.expr || "");
     }
     if (schedule.everyMs) {
