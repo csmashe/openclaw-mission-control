@@ -27,7 +27,9 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   },
   "sessions.preview": (client, args) => {
     const keys = Array.isArray(args.keys)
-      ? args.keys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+      ? args.keys
+          .map((k) => (typeof k === "string" ? k.trim() : ""))
+          .filter((k): k is string => k.length > 0)
       : [];
 
     if (keys.length === 0) {
@@ -52,11 +54,24 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
 // Tools Playground API: explicitly allowlisted safe gateway calls only.
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const tool = typeof body?.tool === "string" ? body.tool : "";
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch (error) {
+      if (error instanceof SyntaxError || (error as { name?: string })?.name === "SyntaxError") {
+        return NextResponse.json(
+          { ok: false, error: "Invalid JSON body" },
+          { status: 400 }
+        );
+      }
+      throw error;
+    }
+
+    const parsedBody = body as { tool?: unknown; args?: unknown };
+    const tool = typeof parsedBody.tool === "string" ? parsedBody.tool : "";
     const args =
-      body?.args && typeof body.args === "object" && !Array.isArray(body.args)
-        ? (body.args as Record<string, unknown>)
+      parsedBody.args && typeof parsedBody.args === "object" && !Array.isArray(parsedBody.args)
+        ? (parsedBody.args as Record<string, unknown>)
         : {};
 
     if (!tool) {
