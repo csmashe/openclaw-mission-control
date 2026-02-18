@@ -251,7 +251,9 @@ export default function Dashboard() {
     const res = await fetch("/api/tasks");
     if (!res.ok) throw new Error(`Failed to fetch tasks (${res.status})`);
     const data = await res.json();
-    setTasks(data.tasks || []);
+    const parsedTasks = data.tasks || [];
+    setTasks(parsedTasks);
+    return parsedTasks as Task[];
   }, []);
 
   const fetchActivity = useCallback(async () => {
@@ -671,13 +673,14 @@ export default function Dashboard() {
           onClose={() => setShowTaskDetail(null)}
           onMoveToDone={() => { moveTask(showTaskDetail.id, "done"); setShowTaskDetail(null); }}
           onRefresh={async () => {
+            let latestTasks: Task[];
             try {
-              await fetchTasks();
+              latestTasks = await fetchTasks();
             } catch {
               return;
             }
 
-            const updated = tasks.find((t) => t.id === showTaskDetail.id);
+            const updated = latestTasks.find((t) => t.id === showTaskDetail.id);
             if (updated) setShowTaskDetail(updated);
           }}
         />
@@ -1169,8 +1172,13 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   }, [task.id]);
 
   const pollTaskDetail = useCallback(async () => {
-    await fetchComments();
-    await onRefresh();
+    setLoading(true);
+    try {
+      await fetchComments();
+      await onRefresh();
+    } finally {
+      setLoading(false);
+    }
   }, [fetchComments, onRefresh]);
 
   useAdaptivePolling({
@@ -1179,10 +1187,6 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
     hiddenIntervalMs: null,
     maxBackoffMs: 30_000,
   });
-
-  useEffect(() => {
-    pollTaskDetail().finally(() => setLoading(false));
-  }, [pollTaskDetail]);
 
   // Auto-scroll when new comments arrive
   useEffect(() => {

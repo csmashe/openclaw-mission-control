@@ -132,6 +132,11 @@ export function useAdaptivePolling({
     if (!enabled) return;
 
     const handleVisibilityChange = () => {
+      if (document.hidden && hiddenIntervalMs == null) {
+        clearTimer();
+        return;
+      }
+
       if (!document.hidden) {
         refreshNow();
       }
@@ -147,6 +152,7 @@ export function useAdaptivePolling({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
+      clearTimer();
     };
-  }, [enabled, refreshNow]);
+  }, [clearTimer, enabled, hiddenIntervalMs, refreshNow]);
 }

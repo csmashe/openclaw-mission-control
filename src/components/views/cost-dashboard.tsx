@@ -157,6 +157,14 @@ export function CostDashboard() {
     maxBackoffMs: 10 * 60_000,
   });
 
+  const handleManualRefresh = useCallback(async () => {
+    try {
+      await fetchUsage();
+    } catch (err) {
+      console.error("Manual usage refresh failed", err);
+    }
+  }, [fetchUsage]);
+
   // Extract whatever data the gateway returns
   const usage = (data?.usage || {}) as Record<string, unknown>;
   const cost = (data?.cost || {}) as Record<string, unknown>;
@@ -214,7 +222,7 @@ export function CostDashboard() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchUsage}
+            onClick={handleManualRefresh}
             disabled={loading}
             className="gap-1.5"
           >

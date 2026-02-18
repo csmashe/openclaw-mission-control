@@ -111,12 +111,24 @@ export function ApprovalCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, decision }),
       });
-      await fetchApprovals();
+      try {
+        await fetchApprovals();
+      } catch (err) {
+        console.error("Failed to refresh approvals after resolve", err);
+      }
     } finally {
       setActionLoading(null);
       setConfirmDialog(null);
     }
   };
+
+  const handleManualRefresh = useCallback(async () => {
+    try {
+      await fetchApprovals();
+    } catch (err) {
+      console.error("Manual approvals refresh failed", err);
+    }
+  }, [fetchApprovals]);
 
   const pendingCount = approvals.length;
 
@@ -143,7 +155,7 @@ export function ApprovalCenter() {
                 {pendingCount} Pending
               </Badge>
             )}
-            <Button variant="outline" size="sm" onClick={fetchApprovals} className="gap-1.5">
+            <Button variant="outline" size="sm" onClick={handleManualRefresh} className="gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>

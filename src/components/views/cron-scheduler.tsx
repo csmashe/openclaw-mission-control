@@ -161,6 +161,14 @@ export function CronScheduler() {
     maxBackoffMs: 120_000,
   });
 
+  const refreshJobsSafely = useCallback(async () => {
+    try {
+      await fetchJobs();
+    } catch (err) {
+      console.error("Failed to refresh cron jobs", err);
+    }
+  }, [fetchJobs]);
+
   const createJob = async () => {
     if (!newPrompt.trim()) return;
     setCreating(true);
@@ -178,7 +186,7 @@ export function CronScheduler() {
       });
       setNewPrompt("");
       setShowCreate(false);
-      await fetchJobs();
+      await refreshJobsSafely();
     } finally {
       setCreating(false);
     }
@@ -192,7 +200,7 @@ export function CronScheduler() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update", id, enabled: !enabled }),
       });
-      await fetchJobs();
+      await refreshJobsSafely();
     } finally {
       setActionLoading(null);
     }
@@ -206,7 +214,7 @@ export function CronScheduler() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "run", id, mode: "force" }),
       });
-      await fetchJobs();
+      await refreshJobsSafely();
     } finally {
       setActionLoading(null);
     }
@@ -220,7 +228,7 @@ export function CronScheduler() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "remove", id }),
       });
-      await fetchJobs();
+      await refreshJobsSafely();
     } finally {
       setActionLoading(null);
     }
