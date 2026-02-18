@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Clock,
   Plus,
@@ -163,6 +163,20 @@ function timeAgo(dateStr: string | undefined): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+function formatNextRun(job: CronJob): string {
+  const next = normalizeRunTime(job, "next");
+  if (next) return timeAgo(next);
+  if (!job.enabled) return "Paused";
+  const sched = typeof job.schedule === "object" ? job.schedule : undefined;
+  if (sched?.kind === "at") return "One-time";
+  return "Not scheduled";
+}
+
+function formatLastRun(job: CronJob): string {
+  const last = normalizeRunTime(job, "last");
+  return last ? timeAgo(last) : "No runs yet";
+}
+
 export function CronScheduler() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,6 +189,15 @@ export function CronScheduler() {
   const [newSchedule, setNewSchedule] = useState(SCHEDULE_PRESETS[1].cron);
   const [newAgent, setNewAgent] = useState("main");
   const [creating, setCreating] = useState(false);
+
+  const sortedJobs = useMemo(() => {
+    return [...jobs].sort((a, b) => {
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      const aName = jobTitle(a).toLowerCase();
+      const bName = jobTitle(b).toLowerCase();
+      return aName.localeCompare(bName);
+    });
+  }, [jobs]);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -260,7 +283,7 @@ export function CronScheduler() {
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col">
+    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="p-6 border-b border-border bg-card/30">
         <div className="flex items-center justify-between">
@@ -287,7 +310,7 @@ export function CronScheduler() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 min-h-0 p-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -306,7 +329,7 @@ export function CronScheduler() {
           </div>
         ) : (
           <div className="space-y-3">
-            {jobs.map((job) => {
+            {sortedJobs.map((job) => {
               const isExpanded = expandedJob === job.id;
               const isLoading = actionLoading === job.id;
               return (
@@ -340,7 +363,7 @@ export function CronScheduler() {
                           <Bot className="w-3 h-3" />
                           {job.agentId || "main"}
                         </span>
-                        <span>Next: {timeAgo(normalizeRunTime(job, "next"))}</span>
+                        <span>Next: {formatNextRun(job)}</span>
                       </div>
                     </div>
 
@@ -407,11 +430,11 @@ export function CronScheduler() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">Last run:</span>{" "}
-                          {timeAgo(normalizeRunTime(job, "last"))}
+                          {formatLastRun(job)}
                         </div>
                         <div>
                           <span className="text-muted-foreground">Next run:</span>{" "}
-                          {timeAgo(normalizeRunTime(job, "next"))}
+                          {formatNextRun(job)}
                         </div>
                       </div>
                       <div className="flex gap-2 pt-2">
