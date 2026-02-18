@@ -81,8 +81,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const handler = TOOL_HANDLERS[tool];
-    if (!handler) {
+    const isAllowedTool = Object.prototype.hasOwnProperty.call(TOOL_HANDLERS, tool);
+    const handler = isAllowedTool ? TOOL_HANDLERS[tool] : undefined;
+    if (!isAllowedTool || typeof handler !== "function") {
       return NextResponse.json(
         { ok: false, error: `Tool is not allowed: ${tool}` },
         { status: 403 }
