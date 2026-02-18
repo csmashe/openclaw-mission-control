@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 
 // Use globalThis to ensure a true singleton across Next.js module boundaries.
@@ -13,7 +14,6 @@ export function getDb(): Database.Database {
   const dbPath = path.resolve(process.cwd(), "data", "mission-control.db");
 
   // Ensure data directory exists
-  const fs = require("fs");
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

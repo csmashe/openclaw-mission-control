@@ -158,9 +158,10 @@ The production build uses Next.js standalone output for minimal footprint and fa
 
 | Environment Variable   | Required | Default                | Description                                |
 | ---------------------- | -------- | ---------------------- | ------------------------------------------ |
-| `OPENCLAW_GATEWAY_URL` | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway     |
-| `OPENCLAW_AUTH_TOKEN`  | Yes      | —                      | Auth token from your gateway's config file |
-| `PORT`                 | No       | `3000`                 | Port number for the dashboard              |
+| `OPENCLAW_GATEWAY_URL` | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway                      |
+| `OPENCLAW_AUTH_TOKEN`  | Yes      | —                      | Auth token from your gateway's config file                  |
+| `OPENCLAW_API_TOKEN`   | No       | `OPENCLAW_AUTH_TOKEN`  | Token required by privileged Mission Control API endpoints |
+| `PORT`                 | No       | `3000`                 | Port number for the dashboard                               |
 
 ### Finding Your Auth Token
 
@@ -171,6 +172,24 @@ Your OpenClaw auth token is in your gateway configuration file (usually `~/.claw
   "auth_token": "your_token_here"
 }
 ```
+
+### API Authentication for Privileged Routes
+
+`/api/openclaw/*` and `/api/chat` are protected by token auth.
+
+For **programmatic clients** (curl, scripts, external integrations), send one of:
+
+- `Authorization: Bearer <token>`
+- `x-openclaw-token: <token>`
+
+For the **Mission Control frontend**, no client-side token wiring is needed:
+
+- The server issues an HTTP-only browser session proof cookie (`mc_browser_session`) on normal page loads.
+- Protected API requests from the browser are validated against that proof.
+- On success, the server injects `x-openclaw-token` internally before route handlers run.
+- The API token never needs to be exposed in browser code, localStorage, or UI logs.
+
+By default the API token is `OPENCLAW_AUTH_TOKEN`, or you can set `OPENCLAW_API_TOKEN` to use a separate value.
 
 ---
 
