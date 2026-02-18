@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Clock,
   Plus,
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import {
   Dialog,
   DialogContent,
@@ -141,20 +142,24 @@ export function CronScheduler() {
   const fetchJobs = useCallback(async () => {
     try {
       const res = await fetch("/api/openclaw/cron");
+      if (!res.ok) throw new Error(`Failed to fetch cron jobs (${res.status})`);
+
       const data = await res.json();
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
-    } catch {
+    } catch (err) {
       setJobs([]);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 10000);
-    return () => clearInterval(interval);
-  }, [fetchJobs]);
+  useAdaptivePolling({
+    poll: fetchJobs,
+    intervalMs: 10_000,
+    hiddenIntervalMs: 30_000,
+    maxBackoffMs: 120_000,
+  });
 
   const createJob = async () => {
     if (!newPrompt.trim()) return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   DollarSign,
   TrendingUp,
@@ -12,6 +12,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 interface UsageData {
   usage: Record<string, unknown> | null;
@@ -134,22 +135,27 @@ export function CostDashboard() {
 
   const fetchUsage = useCallback(async () => {
     setLoading(true);
+
     try {
       const res = await fetch("/api/openclaw/usage");
+      if (!res.ok) throw new Error(`Failed to fetch usage (${res.status})`);
+
       const json = await res.json();
       setData(json);
-    } catch {
+    } catch (err) {
       setData(null);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchUsage();
-    const interval = setInterval(fetchUsage, 60000);
-    return () => clearInterval(interval);
-  }, [fetchUsage]);
+  useAdaptivePolling({
+    poll: fetchUsage,
+    intervalMs: 60_000,
+    hiddenIntervalMs: 5 * 60_000,
+    maxBackoffMs: 10 * 60_000,
+  });
 
   // Extract whatever data the gateway returns
   const usage = (data?.usage || {}) as Record<string, unknown>;

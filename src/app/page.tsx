@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 // --- Types ---
 
@@ -247,19 +248,17 @@ export default function Dashboard() {
   // --- Data Fetching ---
 
   const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch("/api/tasks");
-      const data = await res.json();
-      setTasks(data.tasks || []);
-    } catch { /* retry */ }
+    const res = await fetch("/api/tasks");
+    if (!res.ok) throw new Error(`Failed to fetch tasks (${res.status})`);
+    const data = await res.json();
+    setTasks(data.tasks || []);
   }, []);
 
   const fetchActivity = useCallback(async () => {
-    try {
-      const res = await fetch("/api/activity");
-      const data = await res.json();
-      setActivity(data.activity || []);
-    } catch { /* retry */ }
+    const res = await fetch("/api/activity");
+    if (!res.ok) throw new Error(`Failed to fetch activity (${res.status})`);
+    const data = await res.json();
+    setActivity(data.activity || []);
   }, []);
 
   const fetchAgents = useCallback(async () => {
@@ -280,19 +279,38 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchTasks();
-    fetchActivity();
-    fetchAgents();
-    fetchGatewayStatus();
-    const interval = setInterval(async () => {
-      // Check if any agent-assigned tasks have completed before fetching
-      try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
-      fetchTasks();
-      fetchActivity();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus]);
+  const pollBoardData = useCallback(async () => {
+    const completionRes = await fetch("/api/tasks/check-completion");
+    if (!completionRes.ok) {
+      throw new Error(`Completion check failed (${completionRes.status})`);
+    }
+
+    await Promise.all([fetchTasks(), fetchActivity()]);
+  }, [fetchActivity, fetchTasks]);
+
+  useAdaptivePolling({
+    poll: pollBoardData,
+    intervalMs: 5_000,
+    hiddenIntervalMs: 30_000,
+    maxBackoffMs: 60_000,
+  });
+
+  useAdaptivePolling({
+    poll: async () => {
+      await Promise.all([fetchAgents(), fetchGatewayStatus()]);
+    },
+    intervalMs: 30_000,
+    hiddenIntervalMs: 120_000,
+    maxBackoffMs: 180_000,
+  });
+
+  const refreshBoardNow = useCallback(async () => {
+    try {
+      await Promise.all([fetchTasks(), fetchActivity()]);
+    } catch {
+      // Best effort refresh after mutations
+    }
+  }, [fetchActivity, fetchTasks]);
 
   // --- Task Actions ---
 
@@ -318,8 +336,7 @@ export default function Dashboard() {
       });
     }
 
-    await fetchTasks();
-    await fetchActivity();
+    await refreshBoardNow();
     setShowCreateModal(false);
   };
 
@@ -329,14 +346,12 @@ export default function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: taskId, status: newStatus }),
     });
-    await fetchTasks();
-    await fetchActivity();
+    await refreshBoardNow();
   };
 
   const deleteTask = async (taskId: string) => {
     await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
-    await fetchTasks();
-    await fetchActivity();
+    await refreshBoardNow();
   };
 
   const dispatchTask = async (taskId: string, agentId: string) => {
@@ -352,8 +367,7 @@ export default function Dashboard() {
     });
     const data = await res.json();
     setShowDispatchModal(null);
-    await fetchTasks();
-    await fetchActivity();
+    await refreshBoardNow();
     return data;
   };
 
@@ -656,7 +670,16 @@ export default function Dashboard() {
           task={showTaskDetail}
           onClose={() => setShowTaskDetail(null)}
           onMoveToDone={() => { moveTask(showTaskDetail.id, "done"); setShowTaskDetail(null); }}
-          onRefresh={async () => { await fetchTasks(); const updated = tasks.find(t => t.id === showTaskDetail.id); if (updated) setShowTaskDetail(updated); }}
+          onRefresh={async () => {
+            try {
+              await fetchTasks();
+            } catch {
+              return;
+            }
+
+            const updated = tasks.find((t) => t.id === showTaskDetail.id);
+            if (updated) setShowTaskDetail(updated);
+          }}
         />
       )}
     </div>
@@ -1126,7 +1149,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
   onClose: () => void;
   onMoveToDone: () => void;
-  onRefresh: () => void;
+  onRefresh: () => Promise<void>;
 }) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1139,21 +1162,27 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const fetchComments = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/tasks/comments?taskId=${task.id}`);
-      const data = await res.json();
-      setComments(data.comments || []);
-    } catch {} // retry on next interval
+    const res = await fetch(`/api/tasks/comments?taskId=${task.id}`);
+    if (!res.ok) throw new Error(`Failed to fetch comments (${res.status})`);
+    const data = await res.json();
+    setComments(data.comments || []);
   }, [task.id]);
 
-  useEffect(() => {
-    fetchComments().then(() => setLoading(false));
-    const interval = setInterval(async () => {
-      await fetchComments();
-      onRefresh(); // Also refresh task status
-    }, 3000);
-    return () => clearInterval(interval);
+  const pollTaskDetail = useCallback(async () => {
+    await fetchComments();
+    await onRefresh();
   }, [fetchComments, onRefresh]);
+
+  useAdaptivePolling({
+    poll: pollTaskDetail,
+    intervalMs: 3_000,
+    hiddenIntervalMs: null,
+    maxBackoffMs: 30_000,
+  });
+
+  useEffect(() => {
+    pollTaskDetail().finally(() => setLoading(false));
+  }, [pollTaskDetail]);
 
   // Auto-scroll when new comments arrive
   useEffect(() => {

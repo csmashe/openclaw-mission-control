@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Shield,
   ShieldCheck,
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,8 @@ export function ApprovalCenter() {
   const fetchApprovals = useCallback(async () => {
     try {
       const res = await fetch("/api/openclaw/approvals");
+      if (!res.ok) throw new Error(`Failed to fetch approvals (${res.status})`);
+
       const data = await res.json();
       const items: ApprovalRequest[] = Array.isArray(data.approvals)
         ? data.approvals
@@ -84,18 +87,21 @@ export function ApprovalCenter() {
       const resolved = items.filter((a) => a.decision || a.status === "resolved");
       setApprovals(pending);
       setHistory(resolved);
-    } catch {
+    } catch (err) {
       setApprovals([]);
+      setHistory([]);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchApprovals();
-    const interval = setInterval(fetchApprovals, 3000);
-    return () => clearInterval(interval);
-  }, [fetchApprovals]);
+  useAdaptivePolling({
+    poll: fetchApprovals,
+    intervalMs: 3_000,
+    hiddenIntervalMs: 20_000,
+    maxBackoffMs: 60_000,
+  });
 
   const resolveApproval = async (id: string, decision: "approve" | "reject") => {
     setActionLoading(id);
