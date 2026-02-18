@@ -242,13 +242,17 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
-  const [activeView, setActiveViewState] = useState<ViewId>(getViewFromHash);
+  // Keep SSR and initial client render deterministic, then sync hash after mount.
+  const [activeView, setActiveViewState] = useState<ViewId>("board");
   const setActiveView = useCallback((view: ViewId) => {
     setActiveViewState(view);
     window.location.hash = view === "board" ? "" : view;
   }, []);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      setActiveViewState(getViewFromHash());
+    });
     const onHashChange = () => setActiveViewState(getViewFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -484,7 +488,7 @@ export default function Dashboard() {
       </aside>
 
       {/* ===== Main Content ===== */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      <main className="flex-1 min-h-0 flex flex-col min-w-0 relative">
         {/* Grid pattern background */}
         <div className="absolute inset-0 z-0 opacity-50 pointer-events-none grid-pattern" />
 
@@ -553,7 +557,7 @@ export default function Dashboard() {
         </header>
 
         {/* Content area */}
-        <div className="flex-1 flex overflow-hidden z-10 relative">
+        <div className="flex-1 min-h-0 flex overflow-hidden z-10 relative">
           {activeView === "board" && (
             <KanbanBoard
               columns={COLUMNS}

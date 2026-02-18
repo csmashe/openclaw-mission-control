@@ -6,7 +6,7 @@ const DEFAULT_SESSION_KEY = "mission-control:general-chat";
 function getClient() {
   return new OpenClawClient(
     process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789",
-    { authToken: process.env.OPENCLAW_AUTH_TOKEN || "" }
+    { gatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || "" }
   );
 }
 

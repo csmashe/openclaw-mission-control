@@ -28,8 +28,13 @@ import {
 
 interface ApprovalRequest {
   id: string;
+  requestId?: string;
   command?: string;
   cmd?: string;
+  method?: string;
+  argv?: string[];
+  args?: { command?: string; argv?: string[]; cwd?: string };
+  params?: { command?: string; argv?: string[]; cwd?: string };
   cwd?: string;
   agentId?: string;
   agent?: string;
@@ -59,6 +64,43 @@ function timeAgo(dateStr: string): string {
   return `${hours}h ago`;
 }
 
+function getApprovalCommand(req: ApprovalRequest): string {
+  if (typeof req.command === "string" && req.command.trim()) return req.command;
+  if (typeof req.cmd === "string" && req.cmd.trim()) return req.cmd;
+  if (typeof req.args?.command === "string" && req.args.command.trim()) return req.args.command;
+  if (typeof req.params?.command === "string" && req.params.command.trim()) return req.params.command;
+  const argv = req.argv || req.args?.argv || req.params?.argv;
+  if (Array.isArray(argv) && argv.length > 0) return argv.join(" ");
+  if (typeof req.method === "string" && req.method.trim()) return req.method;
+  return "";
+}
+
+function getApprovalCwd(req: ApprovalRequest): string | undefined {
+  return req.cwd || req.args?.cwd || req.params?.cwd;
+}
+
+function normalizeApprovalsPayload(payload: unknown): { items: ApprovalRequest[]; source: string } {
+  if (Array.isArray(payload)) return { items: payload as ApprovalRequest[], source: "root[]" };
+  if (!payload || typeof payload !== "object") return { items: [], source: "none" };
+
+  const obj = payload as {
+    approvals?: unknown;
+    pending?: unknown;
+    requests?: unknown;
+    history?: unknown;
+    file?: unknown;
+  };
+
+  if (Array.isArray(obj.pending)) return { items: obj.pending as ApprovalRequest[], source: "pending[]" };
+  if (Array.isArray(obj.requests)) return { items: obj.requests as ApprovalRequest[], source: "requests[]" };
+  if (Array.isArray(obj.approvals)) return { items: obj.approvals as ApprovalRequest[], source: "approvals[]" };
+
+  // Some payloads are config documents (e.g., exec-approvals.json metadata),
+  // not live request lists.
+  if (obj.file || obj.history) return { items: [], source: "config-doc" };
+  return { items: [], source: "none" };
+}
+
 export function ApprovalCenter() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,23 +111,29 @@ export function ApprovalCenter() {
     command: string;
   } | null>(null);
   const [history, setHistory] = useState<ApprovalRequest[]>([]);
+  const [sourceInfo, setSourceInfo] = useState("none");
 
   const fetchApprovals = useCallback(async () => {
     try {
       const res = await fetch("/api/openclaw/approvals");
       const data = await res.json();
-      const items: ApprovalRequest[] = Array.isArray(data.approvals)
-        ? data.approvals
-        : data.approvals
-          ? Object.values(data.approvals)
-          : [];
-      // Separate pending from resolved
-      const pending = items.filter((a) => !a.decision && a.status !== "resolved");
-      const resolved = items.filter((a) => a.decision || a.status === "resolved");
+      const { items, source } = normalizeApprovalsPayload(data);
+
+      // Only treat entries with an id + command-like content as live requests.
+      const shaped = items
+        .map((item) => ({ ...item, command: getApprovalCommand(item), cwd: getApprovalCwd(item) }))
+        .filter((item) => (item.id || item.requestId) && item.command);
+
+      const pending = shaped.filter((a) => !a.decision && a.status !== "resolved");
+      const resolved = shaped.filter((a) => a.decision || a.status === "resolved");
+
       setApprovals(pending);
       setHistory(resolved);
+      setSourceInfo(source);
     } catch {
       setApprovals([]);
+      setHistory([]);
+      setSourceInfo("error");
     } finally {
       setLoading(false);
     }
@@ -128,6 +176,17 @@ export function ApprovalCenter() {
               <p className="text-sm text-muted-foreground">
                 Review and approve commands your AI agents want to run
               </p>
+              <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono">
+                Data source: {
+                  sourceInfo === "none"
+                    ? "No live approval queue detected"
+                    : sourceInfo === "config-doc"
+                      ? "Exec approvals config (no live requests)"
+                      : sourceInfo === "error"
+                        ? "Unavailable (fetch error)"
+                        : sourceInfo
+                }
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -156,13 +215,13 @@ export function ApprovalCenter() {
             <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
               Pending Approvals
             </h3>
-            {approvals.map((req) => {
-              const cmd = req.command || req.cmd || "Unknown command";
+            {approvals.map((req, i) => {
+              const cmd = getApprovalCommand(req) || "Unknown command";
               const risk = getRiskLevel(cmd);
               const RiskIcon = risk.icon;
               return (
                 <div
-                  key={req.id}
+                  key={req.id || req.requestId || `${req.agentId || req.agent || "main"}-${req.timestamp || req.createdAt || "now"}-${i}`}
                   className="glass-panel rounded-lg p-5 border-l-4 border-l-yellow-500/50"
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -203,7 +262,7 @@ export function ApprovalCenter() {
                   <div className="flex items-center gap-2">
                     <Button
                       onClick={() =>
-                        setConfirmDialog({ id: req.id, decision: "approve", command: cmd })
+                        setConfirmDialog({ id: req.id || req.requestId || "", decision: "approve", command: cmd })
                       }
                       disabled={actionLoading === req.id}
                       className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
@@ -218,7 +277,7 @@ export function ApprovalCenter() {
                     <Button
                       variant="outline"
                       onClick={() =>
-                        setConfirmDialog({ id: req.id, decision: "reject", command: cmd })
+                        setConfirmDialog({ id: req.id || req.requestId || "", decision: "reject", command: cmd })
                       }
                       disabled={actionLoading === req.id}
                       className="gap-1.5 text-red-400 border-red-400/20 hover:bg-red-400/10"
@@ -249,7 +308,7 @@ export function ApprovalCenter() {
             </h3>
             <div className="space-y-1.5">
               {history.slice(0, 20).map((req, i) => {
-                const cmd = req.command || req.cmd || "Unknown";
+                const cmd = getApprovalCommand(req) || "Unknown";
                 const approved = req.decision === "approve";
                 return (
                   <div

@@ -1,5 +1,13 @@
 import WebSocket from "ws";
 import { randomUUID } from "crypto";
+import {
+  buildDeviceAuthPayload,
+  loadOrCreateGatewayDeviceAuth,
+  persistGatewayDeviceToken,
+  publicKeyRawBase64Url,
+  signDevicePayload,
+  type GatewayDeviceAuth,
+} from "@/lib/openclaw-device-auth";
 
 // --- Types ---
 
@@ -69,12 +77,22 @@ interface RequestFrame {
   params?: unknown;
 }
 
+interface HelloOkPayload {
+  type?: string;
+  auth?: {
+    deviceToken?: string;
+    role?: string;
+    scopes?: string[];
+  };
+}
+
 // --- Client ---
 
 export class OpenClawClient {
   private ws: WebSocket | null = null;
   private url: string;
-  private authToken?: string;
+  private gatewayToken: string;
+  private deviceAuth: GatewayDeviceAuth | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private eventListeners: Map<string, Set<EventCallback>> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -83,9 +101,19 @@ export class OpenClawClient {
   private connectResolve?: () => void;
   private connectReject?: (err: Error) => void;
 
-  constructor(url = "ws://127.0.0.1:18789", opts?: { authToken?: string }) {
+  constructor(
+    url = "ws://127.0.0.1:18789",
+    opts?: { gatewayToken?: string; authToken?: string }
+  ) {
     this.url = url;
-    this.authToken = opts?.authToken;
+    this.gatewayToken = opts?.gatewayToken ?? opts?.authToken ?? "";
+
+    try {
+      this.deviceAuth = loadOrCreateGatewayDeviceAuth();
+    } catch (err) {
+      console.warn("[openclaw-client] Failed to load/create gateway device auth; continuing without device auth", err);
+      this.deviceAuth = null;
+    }
   }
 
   // --- Connection with proper Gateway protocol ---
@@ -235,6 +263,37 @@ export class OpenClawClient {
     connectTimeout?: ReturnType<typeof setTimeout>
   ): void {
     const id = randomUUID();
+    const role = "operator";
+    const scopes = ["operator.read", "operator.admin"];
+    const clientId = "cli";
+    const clientMode = "ui";
+
+    const authToken = this.deviceAuth?.deviceToken || this.gatewayToken;
+
+    const signedAtMs = Date.now();
+    const device = this.deviceAuth
+      ? (() => {
+          const payload = buildDeviceAuthPayload({
+            deviceId: this.deviceAuth!.deviceId,
+            clientId,
+            clientMode,
+            role,
+            scopes,
+            signedAtMs,
+            token: authToken || null,
+            nonce,
+          });
+
+          return {
+            id: this.deviceAuth!.deviceId,
+            publicKey: publicKeyRawBase64Url(this.deviceAuth!.publicKeyPem),
+            signature: signDevicePayload(this.deviceAuth!.privateKeyPem, payload),
+            signedAt: signedAtMs,
+            nonce,
+          };
+        })()
+      : undefined;
+
     const frame: RequestFrame = {
       type: "req",
       id,
@@ -243,25 +302,40 @@ export class OpenClawClient {
         minProtocol: 3,
         maxProtocol: 3,
         client: {
-          id: "gateway-client",
+          id: clientId,
           displayName: "Mission Control Dashboard",
           version: "1.0.0",
           platform: "node",
-          mode: "backend",
+          mode: clientMode,
         },
         caps: [],
-        auth: this.authToken
-          ? { token: this.authToken }
-          : undefined,
-        role: "operator",
-        scopes: ["operator.admin"],
-        device: undefined,
+        auth: authToken ? { token: authToken } : undefined,
+        role,
+        scopes,
+        locale: "en-US",
+        userAgent: "openclaw-mission-control/0.1.0",
+        device,
       },
     };
 
     // Register pending for the connect response
     const pending: PendingRequest = {
-      resolve: () => {
+      resolve: (payload: unknown) => {
+        const hello = payload as HelloOkPayload;
+        const issuedDeviceToken = hello?.auth?.deviceToken;
+
+        if (issuedDeviceToken && issuedDeviceToken !== this.deviceAuth?.deviceToken) {
+          try {
+            persistGatewayDeviceToken(issuedDeviceToken);
+            this.deviceAuth = {
+              ...(this.deviceAuth ?? loadOrCreateGatewayDeviceAuth()),
+              deviceToken: issuedDeviceToken,
+            };
+          } catch {
+            // ignore persistence failures; continue with current in-memory state
+          }
+        }
+
         if (connectTimeout) clearTimeout(connectTimeout);
         this.authenticated = true;
         this.connectResolve?.();
@@ -597,8 +671,16 @@ export function getOpenClawClient(): OpenClawClient {
   if (!clientInstance) {
     const url =
       process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789";
-    const authToken = process.env.OPENCLAW_AUTH_TOKEN;
-    clientInstance = new OpenClawClient(url, { authToken });
+
+    let gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (!gatewayToken && process.env.OPENCLAW_AUTH_TOKEN) {
+      gatewayToken = process.env.OPENCLAW_AUTH_TOKEN;
+      console.warn(
+        "[openclaw-client] OPENCLAW_AUTH_TOKEN is deprecated for gateway auth; please use OPENCLAW_GATEWAY_TOKEN"
+      );
+    }
+
+    clientInstance = new OpenClawClient(url, { gatewayToken: gatewayToken || "" });
   }
   return clientInstance;
 }

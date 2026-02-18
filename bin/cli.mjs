@@ -74,16 +74,16 @@ async function main() {
       "OpenClaw Gateway URL",
       "ws://127.0.0.1:18789"
     );
-    const authToken = await ask(rl, "Auth Token (from your gateway config)", "");
+    const gatewayToken = await ask(rl, "Gateway Token (from your gateway config)", "");
     const port = await ask(rl, "Dashboard Port", "3000");
 
     rl.close();
     print();
 
     // Validate
-    if (!authToken) {
+    if (!gatewayToken) {
       print(
-        `  ${c.yellow}⚠${c.reset}  No auth token provided — connection may fail if gateway requires one.`
+        `  ${c.yellow}⚠${c.reset}  No gateway token provided — connection may fail if gateway requires one.`
       );
       print();
     }
@@ -92,7 +92,7 @@ async function main() {
     print(`  ${c.green}✓${c.reset} Configuration:`);
     print(`    ${c.dim}Gateway :${c.reset} ${gatewayUrl}`);
     print(
-      `    ${c.dim}Token   :${c.reset} ${authToken ? maskToken(authToken) : c.dim + "none" + c.reset}`
+      `    ${c.dim}Token   :${c.reset} ${gatewayToken ? maskToken(gatewayToken) : c.dim + "none" + c.reset}`
     );
     print(`    ${c.dim}Port    :${c.reset} ${port}`);
     print();
@@ -130,7 +130,9 @@ async function main() {
     const env = {
       ...process.env,
       OPENCLAW_GATEWAY_URL: gatewayUrl,
-      OPENCLAW_AUTH_TOKEN: authToken,
+      OPENCLAW_GATEWAY_TOKEN: gatewayToken,
+      OPENCLAW_API_TOKEN:
+        process.env.OPENCLAW_API_TOKEN || gatewayToken,
       PORT: port,
       HOSTNAME: "0.0.0.0",
     };

@@ -28,7 +28,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const TOOL_CATALOG = [
   // Sessions
   { tool: "sessions_list", label: "List Sessions", desc: "Show all active AI sessions", category: "Sessions", icon: MessageSquare, params: [{ name: "agentId", label: "Agent", type: "text", placeholder: "All agents", optional: true }] },
-  { tool: "sessions_preview", label: "Preview Session", desc: "See recent messages in a session", category: "Sessions", icon: MessageSquare, params: [{ name: "keys", label: "Session Key", type: "text", placeholder: "agent:main:main" }] },
+  { tool: "sessions_preview", label: "Preview Session", desc: "See recent messages in a session", category: "Sessions", icon: MessageSquare, params: [{ name: "sessionKey", label: "Session Key", type: "text", placeholder: "agent:main:main" }] },
   // Agents
   { tool: "agents_list", label: "List Agents", desc: "Show all configured AI agents", category: "Agents", icon: Bot, params: [] },
   // Cron
@@ -110,15 +110,39 @@ export function ToolsPlayground() {
       const args: Record<string, unknown> = {};
       selectedTool.params.forEach((p) => {
         const val = paramValues[p.name];
-        if (val && val.trim()) {
-          // If the param expects an array (like "keys"), split by comma
-          if (p.name === "keys") {
-            args[p.name] = val.split(",").map((s) => s.trim());
-          } else {
-            args[p.name] = val;
-          }
+        if (!val || !val.trim()) return;
+
+        // Preview Session expects args.keys: string[] in gateway route.
+        if (p.name === "sessionKey") {
+          args.keys = val
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          return;
         }
+
+        // Generic array input support (legacy keys param)
+        if (p.name === "keys") {
+          args[p.name] = val
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          return;
+        }
+
+        args[p.name] = val;
       });
+
+      if (gatewayTool === "sessions.preview" && (!Array.isArray(args.keys) || (args.keys as string[]).length === 0)) {
+        setResult({
+          ok: false,
+          data: null,
+          duration: Date.now() - start,
+          error: "Please enter at least one session key (e.g., agent:main:main)",
+        });
+        setLoading(false);
+        return;
+      }
 
       const res = await fetch("/api/openclaw/tools", {
         method: "POST",
