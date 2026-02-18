@@ -1302,8 +1302,8 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
                 No activity yet. Assign an agent to start working on this task.
               </div>
             ) : (
-              <ScrollArea className="h-full" ref={scrollRef}>
-                <div className="space-y-2 pr-3">
+              <div className="h-full overflow-y-auto pr-3" ref={scrollRef}>
+                <div className="space-y-2">
                   {comments.map((c) => (
                     <div
                       key={c.id}
@@ -1329,7 +1329,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </div>
         </div>
