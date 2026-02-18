@@ -5,11 +5,7 @@ const SESSION_CONTEXT = "mission-control-browser-session:v1";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 function getExpectedToken(): string {
-  return (
-    process.env.OPENCLAW_API_TOKEN?.trim() ||
-    process.env.OPENCLAW_AUTH_TOKEN?.trim() ||
-    ""
-  );
+  return process.env.OPENCLAW_API_TOKEN?.trim() || "";
 }
 
 function getProvidedToken(request: NextRequest): string {
@@ -119,7 +115,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "API auth token is not configured. Set OPENCLAW_API_TOKEN (or OPENCLAW_AUTH_TOKEN).",
+            "API auth token is not configured. Set OPENCLAW_API_TOKEN.",
         },
         { status: 503 }
       );

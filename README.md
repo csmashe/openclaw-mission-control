@@ -132,7 +132,10 @@ Edit `.env.local` with your settings:
 ```env
 # OpenClaw Gateway
 OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
-OPENCLAW_AUTH_TOKEN=your_auth_token_here
+OPENCLAW_GATEWAY_TOKEN=your_gateway_token_here
+
+# Mission Control API auth
+OPENCLAW_API_TOKEN=your_api_token_here
 ```
 
 Start the development server:
@@ -158,14 +161,14 @@ The production build uses Next.js standalone output for minimal footprint and fa
 
 | Environment Variable   | Required | Default                | Description                                |
 | ---------------------- | -------- | ---------------------- | ------------------------------------------ |
-| `OPENCLAW_GATEWAY_URL` | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway                      |
-| `OPENCLAW_AUTH_TOKEN`  | Yes      | —                      | Auth token from your gateway's config file                  |
-| `OPENCLAW_API_TOKEN`   | No       | `OPENCLAW_AUTH_TOKEN`  | Token required by privileged Mission Control API endpoints |
-| `PORT`                 | No       | `3000`                 | Port number for the dashboard                               |
+| `OPENCLAW_GATEWAY_URL`   | No       | `ws://127.0.0.1:18789` | WebSocket URL of your OpenClaw gateway                     |
+| `OPENCLAW_GATEWAY_TOKEN` | Yes      | —                      | Gateway token used for WebSocket connect/auth handshake    |
+| `OPENCLAW_API_TOKEN`     | Yes      | —                      | Token required by privileged Mission Control API endpoints |
+| `PORT`                   | No       | `3000`                 | Port number for the dashboard                              |
 
-### Finding Your Auth Token
+### Finding Your Gateway Token
 
-Your OpenClaw auth token is in your gateway configuration file (usually `~/.clawdbot/clawdbot.json`):
+Your OpenClaw gateway token is in your gateway configuration file (usually `~/.clawdbot/clawdbot.json`):
 
 ```json
 {
@@ -189,7 +192,7 @@ For the **Mission Control frontend**, no client-side token wiring is needed:
 - On success, the server injects `x-openclaw-token` internally before route handlers run.
 - The API token never needs to be exposed in browser code, localStorage, or UI logs.
 
-By default the API token is `OPENCLAW_AUTH_TOKEN`, or you can set `OPENCLAW_API_TOKEN` to use a separate value.
+Set `OPENCLAW_API_TOKEN` explicitly; Mission Control does not fall back to any other token variable.
 
 ---
 
