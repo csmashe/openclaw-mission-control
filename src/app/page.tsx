@@ -242,13 +242,17 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
-  const [activeView, setActiveViewState] = useState<ViewId>(getViewFromHash);
+  // Keep SSR and initial client render deterministic, then sync hash after mount.
+  const [activeView, setActiveViewState] = useState<ViewId>("board");
   const setActiveView = useCallback((view: ViewId) => {
     setActiveViewState(view);
     window.location.hash = view === "board" ? "" : view;
   }, []);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      setActiveViewState(getViewFromHash());
+    });
     const onHashChange = () => setActiveViewState(getViewFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);

@@ -37,17 +37,32 @@ interface ScheduleObject {
   kind?: string;
   everyMs?: number;
   cron?: string;
+  expr?: string;
   anchorMs?: number;
+}
+
+interface CronPayload {
+  kind?: string;
+  message?: string;
+  text?: string;
+}
+
+interface CronJobState {
+  lastRunAtMs?: number;
+  nextRunAtMs?: number;
 }
 
 interface CronJob {
   id: string;
+  name?: string;
   prompt?: string;
+  payload?: CronPayload;
   schedule: string | ScheduleObject;
   enabled: boolean;
   agentId?: string;
   lastRun?: string;
   nextRun?: string;
+  state?: CronJobState;
 }
 
 // Human-friendly schedule presets
@@ -76,8 +91,8 @@ function scheduleToHuman(schedule: string | ScheduleObject): string {
     if (schedule.kind === "every" && schedule.everyMs) {
       return `Every ${formatMs(schedule.everyMs)}`;
     }
-    if (schedule.kind === "cron" && schedule.cron) {
-      return cronToHuman(schedule.cron);
+    if (schedule.kind === "cron" && (schedule.cron || schedule.expr)) {
+      return cronToHuman(schedule.cron || schedule.expr || "");
     }
     if (schedule.everyMs) {
       return `Every ${formatMs(schedule.everyMs)}`;
@@ -106,6 +121,29 @@ function cronToHuman(cron: string): string {
   if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`;
   if (hour.startsWith("*/")) return `Every ${hour.slice(2)} hours`;
   return cron;
+}
+
+function jobTitle(job: CronJob): string {
+  if (job.name?.trim()) return job.name.trim();
+  if (job.prompt?.trim()) return job.prompt.trim();
+  const payloadText = job.payload?.message || job.payload?.text;
+  if (payloadText?.trim()) {
+    const firstLine = payloadText.trim().split("\n")[0];
+    return firstLine.length > 90 ? `${firstLine.slice(0, 87)}...` : firstLine;
+  }
+  return "Unnamed task";
+}
+
+function normalizeRunTime(job: CronJob, kind: "last" | "next"): string | undefined {
+  if (kind === "last") {
+    if (job.lastRun) return job.lastRun;
+    if (job.state?.lastRunAtMs) return new Date(job.state.lastRunAtMs).toISOString();
+    return undefined;
+  }
+
+  if (job.nextRun) return job.nextRun;
+  if (job.state?.nextRunAtMs) return new Date(job.state.nextRunAtMs).toISOString();
+  return undefined;
 }
 
 function timeAgo(dateStr: string | undefined): string {
@@ -291,7 +329,7 @@ export function CronScheduler() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">
-                        {job.prompt || "Unnamed task"}
+                        {jobTitle(job)}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
@@ -302,9 +340,7 @@ export function CronScheduler() {
                           <Bot className="w-3 h-3" />
                           {job.agentId || "main"}
                         </span>
-                        {job.nextRun && (
-                          <span>Next: {timeAgo(job.nextRun)}</span>
-                        )}
+                        <span>Next: {timeAgo(normalizeRunTime(job, "next"))}</span>
                       </div>
                     </div>
 
@@ -371,11 +407,11 @@ export function CronScheduler() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">Last run:</span>{" "}
-                          {timeAgo(job.lastRun)}
+                          {timeAgo(normalizeRunTime(job, "last"))}
                         </div>
                         <div>
                           <span className="text-muted-foreground">Next run:</span>{" "}
-                          {timeAgo(job.nextRun)}
+                          {timeAgo(normalizeRunTime(job, "next"))}
                         </div>
                       </div>
                       <div className="flex gap-2 pt-2">

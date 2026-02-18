@@ -28,6 +28,7 @@ import {
 
 interface ApprovalRequest {
   id: string;
+  requestId?: string;
   command?: string;
   cmd?: string;
   cwd?: string;
@@ -156,13 +157,13 @@ export function ApprovalCenter() {
             <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
               Pending Approvals
             </h3>
-            {approvals.map((req) => {
+            {approvals.map((req, i) => {
               const cmd = req.command || req.cmd || "Unknown command";
               const risk = getRiskLevel(cmd);
               const RiskIcon = risk.icon;
               return (
                 <div
-                  key={req.id}
+                  key={req.id || req.requestId || `${req.agentId || req.agent || "main"}-${req.timestamp || req.createdAt || "now"}-${i}`}
                   className="glass-panel rounded-lg p-5 border-l-4 border-l-yellow-500/50"
                 >
                   <div className="flex items-start justify-between mb-3">
