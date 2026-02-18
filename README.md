@@ -175,12 +175,21 @@ Your OpenClaw auth token is in your gateway configuration file (usually `~/.claw
 
 ### API Authentication for Privileged Routes
 
-`/api/openclaw/*` and `/api/chat` now require an API token in either:
+`/api/openclaw/*` and `/api/chat` are protected by token auth.
+
+For **programmatic clients** (curl, scripts, external integrations), send one of:
 
 - `Authorization: Bearer <token>`
 - `x-openclaw-token: <token>`
 
-By default this token is `OPENCLAW_AUTH_TOKEN`, or you can set `OPENCLAW_API_TOKEN` to use a separate value.
+For the **Mission Control frontend**, no client-side token wiring is needed:
+
+- The server issues an HTTP-only browser session proof cookie (`mc_browser_session`) on normal page loads.
+- Protected API requests from the browser are validated against that proof.
+- On success, the server injects `x-openclaw-token` internally before route handlers run.
+- The API token never needs to be exposed in browser code, localStorage, or UI logs.
+
+By default the API token is `OPENCLAW_AUTH_TOKEN`, or you can set `OPENCLAW_API_TOKEN` to use a separate value.
 
 ---
 

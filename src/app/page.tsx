@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { useTheme } from "next-themes";
 import {
   LayoutDashboard,
@@ -181,11 +187,19 @@ function getActivityLabel(type: string): string {
 
 // --- Theme Toggle ---
 
+function useIsClient(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="w-8 h-8" />;
+  const isClient = useIsClient();
+
+  if (!isClient) return <div className="w-8 h-8" />;
 
   return (
     <Tooltip>
@@ -281,16 +295,26 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetchTasks();
-    fetchActivity();
-    fetchAgents();
-    fetchGatewayStatus();
+    const runInitialRefresh = () => {
+      void fetchTasks();
+      void fetchActivity();
+      void fetchAgents();
+      void fetchGatewayStatus();
+    };
+
+    queueMicrotask(runInitialRefresh);
+
     const interval = setInterval(async () => {
       // Check if any agent-assigned tasks have completed before fetching
-      try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
-      fetchTasks();
-      fetchActivity();
+      try {
+        await fetch("/api/tasks/check-completion");
+      } catch {
+        /* ignore */
+      }
+      void fetchTasks();
+      void fetchActivity();
     }, 5000);
+
     return () => clearInterval(interval);
   }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus]);
 
@@ -1525,7 +1549,11 @@ function MissionsView() {
     } catch { /* retry */ }
   }, []);
 
-  useEffect(() => { fetchMissions(); }, [fetchMissions]);
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchMissions();
+    });
+  }, [fetchMissions]);
 
   const createMission = async () => {
     if (!newName.trim()) return;
