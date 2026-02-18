@@ -1209,7 +1209,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col min-h-0">
+      <DialogContent className="sm:max-w-[600px] h-[85vh] max-h-[90vh] overflow-hidden flex flex-col min-h-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {task.title}
@@ -1262,7 +1262,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
         )}
 
         {/* Comments */}
-        <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
+        <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
           <h4 className="text-sm font-medium text-muted-foreground shrink-0">
             Activity ({comments.length})
           </h4>
@@ -1274,7 +1274,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
                 No activity yet. Assign an agent to start working on this task.
               </div>
             ) : (
-              <div className="h-full overflow-y-auto pr-3" ref={scrollRef}>
+              <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
                 <div className="space-y-2">
                   {comments.map((c) => (
                     <div
