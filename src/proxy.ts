@@ -30,7 +30,9 @@ function shouldIssueBrowserSessionCookie(request: NextRequest): boolean {
 }
 
 function isSecureCookieRequest(request: NextRequest): boolean {
-  if (process.env.NODE_ENV === "production") return true;
+  const forced = (process.env.MC_COOKIE_SECURE || "").trim().toLowerCase();
+  if (forced === "1" || forced === "true") return true;
+  if (forced === "0" || forced === "false") return false;
 
   const forwardedProto = request.headers.get("x-forwarded-proto");
   if (forwardedProto) return forwardedProto === "https";
