@@ -67,7 +67,10 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    const parsedBody = body as { tool?: unknown; args?: unknown };
+    const parsedBody =
+      body !== null && typeof body === "object" && !Array.isArray(body)
+        ? (body as { tool?: unknown; args?: unknown })
+        : ({} as { tool?: unknown; args?: unknown });
     const tool = typeof parsedBody.tool === "string" ? parsedBody.tool : "";
     const args =
       parsedBody.args && typeof parsedBody.args === "object" && !Array.isArray(parsedBody.args)

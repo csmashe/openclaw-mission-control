@@ -173,9 +173,9 @@ export function CostDashboard() {
   const sum = (key: "input" | "output" | "totalCost" | "totalTokens"): number =>
     selectedDays.reduce((acc, row) => acc + (Number(row[key] ?? 0) || 0), 0);
 
-  const inputTokensRaw = sum("input");
-  const outputTokensRaw = sum("output");
-  const totalCostRaw = sum("totalCost");
+  const inputTokensRaw = selectedDays.length ? sum("input") : null;
+  const outputTokensRaw = selectedDays.length ? sum("output") : null;
+  const totalCostRaw = selectedDays.length ? sum("totalCost") : null;
 
   const inputTokens =
     inputTokensRaw ??

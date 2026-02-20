@@ -17,12 +17,15 @@ async function runOpenclawJson(args: string[]) {
   const token = gatewayToken();
   if (!token) throw new Error("Missing gateway token in environment");
 
+  const gatewayUrl =
+    process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789";
+
   const { stdout } = await execFileAsync(
     "openclaw",
     [
       ...args,
       "--url",
-      "ws://127.0.0.1:18789",
+      gatewayUrl,
       "--token",
       token,
       "--json",
