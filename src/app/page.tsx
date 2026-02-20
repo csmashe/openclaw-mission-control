@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useSyncExternalStore,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTheme } from "next-themes";
 import {
   LayoutDashboard,
@@ -110,6 +104,19 @@ interface GatewayStatus {
   connected: boolean;
   agentCount: number;
   cronJobCount: number;
+  error?: string;
+}
+
+interface DevicePairStatus {
+  pendingCount: number;
+  latestPending?: {
+    requestId?: string;
+    displayName?: string;
+    clientId?: string;
+    clientMode?: string;
+    scopes?: string[];
+  } | null;
+  error?: string;
 }
 
 type ColumnId = "inbox" | "assigned" | "in_progress" | "review" | "done";
@@ -187,19 +194,11 @@ function getActivityLabel(type: string): string {
 
 // --- Theme Toggle ---
 
-function useIsClient(): boolean {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
-}
-
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const isClient = useIsClient();
-
-  if (!isClient) return <div className="w-8 h-8" />;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return <div className="w-8 h-8" />;
 
   return (
     <Tooltip>
@@ -239,20 +238,18 @@ export default function Dashboard() {
     agentCount: 0,
     cronJobCount: 0,
   });
+  const [devicePairStatus, setDevicePairStatus] = useState<DevicePairStatus>({ pendingCount: 0 });
+  const [approvingDevicePair, setApprovingDevicePair] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
-  // Keep SSR and initial client render deterministic, then sync hash after mount.
-  const [activeView, setActiveViewState] = useState<ViewId>("board");
+  const [activeView, setActiveViewState] = useState<ViewId>(getViewFromHash);
   const setActiveView = useCallback((view: ViewId) => {
     setActiveViewState(view);
     window.location.hash = view === "board" ? "" : view;
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      setActiveViewState(getViewFromHash());
-    });
     const onHashChange = () => setActiveViewState(getViewFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -298,29 +295,50 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    const runInitialRefresh = () => {
-      void fetchTasks();
-      void fetchActivity();
-      void fetchAgents();
-      void fetchGatewayStatus();
-    };
+  const fetchDevicePairStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/openclaw/device-pair");
+      const data = await res.json();
+      setDevicePairStatus({
+        pendingCount: data?.pendingCount ?? 0,
+        latestPending: data?.latestPending ?? null,
+        error: data?.error,
+      });
+    } catch (error) {
+      setDevicePairStatus({ pendingCount: 0, error: String(error) });
+    }
+  }, []);
 
-    queueMicrotask(runInitialRefresh);
+  const approveLatestDevicePair = useCallback(async () => {
+    try {
+      setApprovingDevicePair(true);
+      await fetch("/api/openclaw/device-pair", { method: "POST" });
+      await fetchDevicePairStatus();
+      await fetchGatewayStatus();
+      await fetchAgents();
+    } finally {
+      setApprovingDevicePair(false);
+    }
+  }, [fetchAgents, fetchDevicePairStatus, fetchGatewayStatus]);
+
+  useEffect(() => {
+    fetchTasks();
+    fetchActivity();
+    fetchAgents();
+    fetchGatewayStatus();
+    fetchDevicePairStatus();
 
     const interval = setInterval(async () => {
       // Check if any agent-assigned tasks have completed before fetching
-      try {
-        await fetch("/api/tasks/check-completion");
-      } catch {
-        /* ignore */
-      }
-      void fetchTasks();
-      void fetchActivity();
+      try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
+      fetchTasks();
+      fetchActivity();
+      fetchGatewayStatus();
+      fetchDevicePairStatus();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus]);
+  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus, fetchDevicePairStatus]);
 
   // --- Task Actions ---
 
@@ -488,7 +506,7 @@ export default function Dashboard() {
       </aside>
 
       {/* ===== Main Content ===== */}
-      <main className="flex-1 min-h-0 flex flex-col min-w-0 relative">
+      <main className="flex-1 flex flex-col min-w-0 relative">
         {/* Grid pattern background */}
         <div className="absolute inset-0 z-0 opacity-50 pointer-events-none grid-pattern" />
 
@@ -556,8 +574,28 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {!gatewayStatus.connected && devicePairStatus.pendingCount > 0 && (
+          <div className="z-10 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 flex items-center justify-between gap-3">
+            <div className="text-xs">
+              <span className="font-semibold text-amber-300">Device approval required:</span>{" "}
+              <span className="text-amber-100/90">
+                Mission Control has {devicePairStatus.pendingCount} pending pairing request{devicePairStatus.pendingCount > 1 ? "s" : ""}.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={approveLatestDevicePair}
+              disabled={approvingDevicePair}
+              className="h-7 text-xs"
+            >
+              {approvingDevicePair ? "Approving..." : "Approve latest device"}
+            </Button>
+          </div>
+        )}
+
         {/* Content area */}
-        <div className="flex-1 min-h-0 flex overflow-hidden z-10 relative">
+        <div className="flex-1 flex overflow-hidden z-10 relative">
           {activeView === "board" && (
             <KanbanBoard
               columns={COLUMNS}
@@ -1237,7 +1275,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] h-[85vh] max-h-[90vh] overflow-hidden flex flex-col min-h-0">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {task.title}
@@ -1290,48 +1328,46 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
         )}
 
         {/* Comments */}
-        <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
-          <h4 className="text-sm font-medium text-muted-foreground shrink-0">
+        <div className="flex-1 space-y-2 min-h-0">
+          <h4 className="text-sm font-medium text-muted-foreground">
             Activity ({comments.length})
           </h4>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {loading ? (
-              <div className="h-full text-sm text-muted-foreground animate-pulse py-4 text-center overflow-y-auto">Loading...</div>
-            ) : comments.length === 0 ? (
-              <div className="h-full text-sm text-muted-foreground py-4 text-center overflow-y-auto">
-                No activity yet. Assign an agent to start working on this task.
-              </div>
-            ) : (
-              <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
-                <div className="space-y-2">
-                  {comments.map((c) => (
-                    <div
-                      key={c.id}
-                      className={`p-3 rounded-md text-sm border ${
-                        c.author_type === "agent"
-                          ? "bg-primary/5 border-primary/20"
-                          : c.author_type === "system"
-                          ? "bg-blue-500/5 border-blue-500/20"
-                          : "bg-amber-500/5 border-amber-500/20"
-                      }`}
-                    >
-                      <div className={`text-[11px] font-bold uppercase mb-1 ${
-                        c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
-                      }`}>
-                        {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
-                      </div>
-                      <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
-                        {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1">
-                        {timeAgo(c.created_at)}
-                      </div>
+          {loading ? (
+            <div className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading...</div>
+          ) : comments.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-4 text-center">
+              No activity yet. Assign an agent to start working on this task.
+            </div>
+          ) : (
+            <ScrollArea className="max-h-[250px]" ref={scrollRef}>
+              <div className="space-y-2">
+                {comments.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`p-3 rounded-md text-sm border ${
+                      c.author_type === "agent"
+                        ? "bg-primary/5 border-primary/20"
+                        : c.author_type === "system"
+                        ? "bg-blue-500/5 border-blue-500/20"
+                        : "bg-amber-500/5 border-amber-500/20"
+                    }`}
+                  >
+                    <div className={`text-[11px] font-bold uppercase mb-1 ${
+                      c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
+                    }`}>
+                      {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
                     </div>
-                  ))}
-                </div>
+                    <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
+                      {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {timeAgo(c.created_at)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
+            </ScrollArea>
+          )}
         </div>
 
         {/* User Comment Input */}
@@ -1555,11 +1591,7 @@ function MissionsView() {
     } catch { /* retry */ }
   }, []);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      void fetchMissions();
-    });
-  }, [fetchMissions]);
+  useEffect(() => { fetchMissions(); }, [fetchMissions]);
 
   const createMission = async () => {
     if (!newName.trim()) return;
