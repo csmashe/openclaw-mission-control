@@ -41,14 +41,16 @@ function isSecureCookieRequest(request: NextRequest): boolean {
 }
 
 function secureCompare(a: string, b: string): boolean {
-  if (!a || !b || a.length !== b.length) return false;
+  const sa = a || "";
+  const sb = b || "";
+  const len = Math.max(sa.length, sb.length);
 
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  let mismatch = sa.length ^ sb.length;
+  for (let i = 0; i < len; i++) {
+    mismatch |= (sa.charCodeAt(i) || 0) ^ (sb.charCodeAt(i) || 0);
   }
 
-  return mismatch === 0;
+  return len > 0 && mismatch === 0;
 }
 
 async function sha256Hex(input: string): Promise<string> {

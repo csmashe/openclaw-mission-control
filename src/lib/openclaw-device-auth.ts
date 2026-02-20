@@ -12,6 +12,7 @@ export interface GatewayDeviceAuth {
   publicKeyPem: string;
   privateKeyPem: string;
   deviceToken?: string;
+  createdAtMs?: number;
 }
 
 interface StoredGatewayDeviceAuth extends GatewayDeviceAuth {
@@ -87,6 +88,7 @@ export function loadOrCreateGatewayDeviceAuth(): GatewayDeviceAuth {
           publicKeyPem: parsed.publicKeyPem,
           privateKeyPem: parsed.privateKeyPem,
           deviceToken: parsed.deviceToken,
+          createdAtMs: parsed.createdAtMs,
         };
       }
     }
@@ -105,20 +107,7 @@ export function loadOrCreateGatewayDeviceAuth(): GatewayDeviceAuth {
 
 export function persistGatewayDeviceToken(deviceToken: string): void {
   const current = loadOrCreateGatewayDeviceAuth();
-
-  let createdAtMs = Date.now();
-  try {
-    if (fs.existsSync(AUTH_FILE)) {
-      const parsed = JSON.parse(
-        fs.readFileSync(AUTH_FILE, "utf8")
-      ) as Partial<StoredGatewayDeviceAuth>;
-      if (typeof parsed.createdAtMs === "number") {
-        createdAtMs = parsed.createdAtMs;
-      }
-    }
-  } catch {
-    // ignore read/parse errors and keep fallback timestamp
-  }
+  const createdAtMs = typeof current.createdAtMs === "number" ? current.createdAtMs : Date.now();
 
   writeAuthFile({
     version: 1,

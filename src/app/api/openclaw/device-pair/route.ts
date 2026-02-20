@@ -33,7 +33,7 @@ async function runOpenclawJson(args: string[]) {
     { timeout: 15000, maxBuffer: 2 * 1024 * 1024 }
   );
 
-  return JSON.parse(stdout || "{}");
+  return JSON.parse(stdout?.trim() || "{}");
 }
 
 export async function GET() {
