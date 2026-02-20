@@ -22,6 +22,40 @@ function extractTextContent(content: unknown): string {
   return "";
 }
 
+function isSubstantiveCompletion(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+
+  // Fast reject for acknowledgement-only replies.
+  const ackOnly = [
+    /^on it[.!]?$/i,
+    /^working on it[.!]?$/i,
+    /^i'?ll handle it[.!]?$/i,
+    /^starting now[.!]?$/i,
+    /^got it[.!]?$/i,
+  ];
+  if (ackOnly.some((rx) => rx.test(t))) return false;
+
+  // Require concrete completion language + implementation evidence signal.
+  const lower = t.toLowerCase();
+  const hasCompletionSignal =
+    lower.includes("done") ||
+    lower.includes("completed") ||
+    lower.includes("implemented") ||
+    lower.includes("finished");
+
+  const hasEvidenceSignal =
+    lower.includes("changed files") ||
+    lower.includes("diff") ||
+    lower.includes("verification") ||
+    lower.includes("build") ||
+    lower.includes("test") ||
+    lower.includes("output");
+
+  // Length floor avoids tiny one-liners auto-completing tasks.
+  return hasCompletionSignal && hasEvidenceSignal && t.length >= 120;
+}
+
 /**
  * GET /api/tasks/check-completion
  * 
@@ -52,31 +86,34 @@ export async function GET() {
         const history = await client.getChatHistory(task.openclaw_session_key!);
         const assistantMsgs = history.filter((m) => m.role === "assistant");
 
-        // If there are assistant messages, the agent has responded
+        // If there are assistant messages, check whether latest one is substantive completion.
         if (assistantMsgs.length > 0) {
           const latestResponse = assistantMsgs[assistantMsgs.length - 1];
-          // Content may be a string or an array of content blocks
           const responseText = extractTextContent(latestResponse.content);
+          const existingComments = listComments(task.id);
 
-          if (responseText) {
-            // Add agent response as comment (check if we already added it)
-            const existingComments = listComments(task.id);
-            const alreadyHasAgentComment = existingComments.some(
-              (c) => c.author_type === "agent"
-            );
+          const sameAgentCommentExists = responseText
+            ? existingComments.some(
+                (c) => c.author_type === "agent" && c.content.trim() === responseText.trim()
+              )
+            : false;
 
-            if (!alreadyHasAgentComment) {
-              addComment({
-                id: uuidv4(),
-                task_id: task.id,
-                agent_id: task.assigned_agent_id!,
-                author_type: "agent",
-                content: responseText,
-              });
-            }
+          // Persist latest agent response once for review context, even if not completion.
+          if (responseText && !sameAgentCommentExists) {
+            addComment({
+              id: uuidv4(),
+              task_id: task.id,
+              agent_id: task.assigned_agent_id!,
+              author_type: "agent",
+              content: responseText,
+            });
           }
 
-          // Move to review
+          // Do not auto-complete on acknowledgements / non-substantive updates.
+          if (!isSubstantiveCompletion(responseText)) {
+            continue;
+          }
+
           updateTask(task.id, { status: "review" });
 
           const createdAt = new Date(task.updated_at).getTime();
@@ -100,7 +137,7 @@ export async function GET() {
 
           completed.push(task.id);
           console.log(
-            `[check-completion] Task "${task.title}" moved to REVIEW (agent completed)`
+            `[check-completion] Task "${task.title}" moved to REVIEW (substantive completion detected)`
           );
         }
       } catch (err) {

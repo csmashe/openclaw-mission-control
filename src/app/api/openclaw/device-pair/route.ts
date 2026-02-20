@@ -13,12 +13,35 @@ function gatewayToken(): string {
   );
 }
 
+function cliSafeGatewayUrl(): string {
+  const explicitCliUrl = process.env.OPENCLAW_GATEWAY_CLI_URL?.trim();
+  if (explicitCliUrl) return explicitCliUrl;
+
+  const configured = (process.env.OPENCLAW_GATEWAY_URL || "").trim();
+  if (!configured) return "ws://127.0.0.1:18789";
+
+  try {
+    const url = new URL(configured);
+    const isPlainWs = url.protocol === "ws:";
+    const isLoopback =
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "localhost" ||
+      url.hostname === "::1";
+
+    // OpenClaw CLI blocks plaintext ws:// on non-loopback addresses.
+    if (isPlainWs && !isLoopback) return "ws://127.0.0.1:18789";
+
+    return configured;
+  } catch {
+    return "ws://127.0.0.1:18789";
+  }
+}
+
 async function runOpenclawJson(args: string[]) {
   const token = gatewayToken();
   if (!token) throw new Error("Missing gateway token in environment");
 
-  const gatewayUrl =
-    process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789";
+  const gatewayUrl = cliSafeGatewayUrl();
 
   const { stdout } = await execFileAsync(
     "openclaw",
