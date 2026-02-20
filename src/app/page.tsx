@@ -310,12 +310,21 @@ export default function Dashboard() {
   }, []);
 
   const approveLatestDevicePair = useCallback(async () => {
+    setApprovingDevicePair(true);
     try {
-      setApprovingDevicePair(true);
-      await fetch("/api/openclaw/device-pair", { method: "POST" });
+      const res = await fetch("/api/openclaw/device-pair", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const detail = body?.error || `HTTP ${res.status}`;
+        setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${detail}` }));
+        return;
+      }
+      setDevicePairStatus((prev) => ({ ...prev, error: undefined }));
       await fetchDevicePairStatus();
       await fetchGatewayStatus();
       await fetchAgents();
+    } catch (err) {
+      setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${String(err)}` }));
     } finally {
       setApprovingDevicePair(false);
     }
@@ -574,23 +583,35 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {!gatewayStatus.connected && devicePairStatus.pendingCount > 0 && (
+        {devicePairStatus.pendingCount > 0 && (
           <div className="z-10 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 flex items-center justify-between gap-3">
             <div className="text-xs">
               <span className="font-semibold text-amber-300">Device approval required:</span>{" "}
               <span className="text-amber-100/90">
                 Mission Control has {devicePairStatus.pendingCount} pending pairing request{devicePairStatus.pendingCount > 1 ? "s" : ""}.
+                {devicePairStatus.error && (
+                  <span className="text-red-400 ml-2">{devicePairStatus.error}</span>
+                )}
               </span>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={approveLatestDevicePair}
-              disabled={approvingDevicePair}
-              className="h-7 text-xs"
-            >
-              {approvingDevicePair ? "Approving..." : "Approve latest device"}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={approveLatestDevicePair}
+                    disabled={approvingDevicePair}
+                    className="h-7 text-xs"
+                  >
+                    {approvingDevicePair ? "Approving..." : "Approve latest device"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Approve latest pending device request</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
 
