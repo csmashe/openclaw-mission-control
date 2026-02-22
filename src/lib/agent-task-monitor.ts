@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "./openclaw-client";
 import { getTask, updateTask, addComment, logActivity } from "./db";
+import { evaluateCompletion, extractDispatchCompletion } from "./completion-gate";
 
 // --- Types ---
 
@@ -10,8 +11,12 @@ interface ActiveMonitor {
   agentId: string;
   startedAt: number;
   pollTimer: ReturnType<typeof setInterval>;
-  timeoutTimer: ReturnType<typeof setTimeout>;
+  timeoutTimer?: ReturnType<typeof setTimeout>;
   lastMessageCount: number;
+  lastActivityAt: number;
+  dispatchId?: string;
+  dispatchStartedAt?: string;
+  baselineAssistantCount?: number;
 }
 
 // --- Singleton ---
@@ -23,7 +28,7 @@ const globalForMonitor = globalThis as typeof globalThis & {
 class AgentTaskMonitor {
   private monitors: Map<string, ActiveMonitor> = new Map(); // sessionKey → monitor
   private readonly POLL_INTERVAL_MS = 10_000; // Check every 10 seconds
-  private readonly TIMEOUT_MS = 5 * 60 * 1000; // 5 minute max
+  private readonly IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minute idle timeout
 
   /**
    * Start monitoring a dispatched task for agent completion.
@@ -32,19 +37,26 @@ class AgentTaskMonitor {
   async startMonitoring(
     taskId: string,
     sessionKey: string,
-    agentId: string
+    agentId: string,
+    opts?: {
+      dispatchId?: string;
+      dispatchStartedAt?: string;
+      baselineAssistantCount?: number;
+    }
   ): Promise<void> {
     // Clean up any existing monitor for this session
     this.stopMonitoring(sessionKey);
 
     // Get initial message count so we can detect new messages
-    let initialCount = 0;
-    try {
-      const client = getOpenClawClient();
-      const history = await client.getChatHistory(sessionKey);
-      initialCount = history.filter((m) => m.role === "assistant").length;
-    } catch {
-      // Start from 0 if we can't get history
+    let initialCount = opts?.baselineAssistantCount ?? 0;
+    if (opts?.baselineAssistantCount == null) {
+      try {
+        const client = getOpenClawClient();
+        const history = await client.getChatHistory(sessionKey);
+        initialCount = history.filter((m) => m.role === "assistant").length;
+      } catch {
+        // Start from 0 if we can't get history
+      }
     }
 
     // Set up polling interval
@@ -52,25 +64,22 @@ class AgentTaskMonitor {
       await this.pollForCompletion(sessionKey);
     }, this.POLL_INTERVAL_MS);
 
-    // Set up absolute timeout
-    const timeoutTimer = setTimeout(async () => {
-      console.log(
-        `[AgentTaskMonitor] Timeout for task ${taskId} (session: ${sessionKey}). Force-moving to review.`
-      );
-      await this.forceComplete(sessionKey, "timeout");
-    }, this.TIMEOUT_MS);
-
     const monitor: ActiveMonitor = {
       taskId,
       sessionKey,
       agentId,
       startedAt: Date.now(),
       pollTimer,
-      timeoutTimer,
+      timeoutTimer: undefined,
       lastMessageCount: initialCount,
+      lastActivityAt: Date.now(),
+      dispatchId: opts?.dispatchId,
+      dispatchStartedAt: opts?.dispatchStartedAt,
+      baselineAssistantCount: initialCount,
     };
 
     this.monitors.set(sessionKey, monitor);
+    this.resetIdleTimeout(monitor);
     console.log(
       `[AgentTaskMonitor] Monitoring started: task=${taskId}, session=${sessionKey}, agent=${agentId}, initialMsgs=${initialCount}`
     );
@@ -112,6 +121,17 @@ class AgentTaskMonitor {
 
   // --- Private ---
 
+  private resetIdleTimeout(monitor: ActiveMonitor): void {
+    if (monitor.timeoutTimer) clearTimeout(monitor.timeoutTimer);
+    const { sessionKey, taskId } = monitor;
+    monitor.timeoutTimer = setTimeout(async () => {
+      console.log(
+        `[AgentTaskMonitor] Idle timeout for task ${taskId} (session: ${sessionKey}). Keeping in progress.`
+      );
+      await this.forceComplete(sessionKey, "timeout");
+    }, this.IDLE_TIMEOUT_MS);
+  }
+
   /**
    * Poll chat history to detect agent completion.
    * Checks if new assistant messages have appeared since we started monitoring.
@@ -136,11 +156,19 @@ class AgentTaskMonitor {
       // Check if new assistant messages have arrived
       if (assistantMsgs.length > monitor.lastMessageCount) {
         const latestResponse = assistantMsgs[assistantMsgs.length - 1];
+        monitor.lastActivityAt = Date.now();
+        this.resetIdleTimeout(monitor);
         console.log(
           `[AgentTaskMonitor] New agent response detected for task ${monitor.taskId} (${assistantMsgs.length} msgs, was ${monitor.lastMessageCount})`
         );
 
-        await this.handleCompletion(monitor, latestResponse.content);
+        await this.handleCompletion(
+          monitor,
+          latestResponse.content,
+          assistantMsgs.length,
+          latestResponse.timestamp ?? new Date().toISOString()
+        );
+        monitor.lastMessageCount = assistantMsgs.length;
       }
     } catch (err) {
       console.error(
@@ -151,16 +179,16 @@ class AgentTaskMonitor {
   }
 
   /**
-   * Handle successful agent completion — move task to review.
+   * Handle successful agent completion signal.
+   * Manager monitor auto-promotes valid completions to review.
    */
   private async handleCompletion(
     monitor: ActiveMonitor,
-    responseText: string
+    responseText: string,
+    assistantMessageCount: number,
+    evidenceTimestamp: string
   ): Promise<void> {
     const { taskId, agentId, sessionKey } = monitor;
-
-    // Stop monitoring first to prevent duplicate processing
-    this.stopMonitoring(sessionKey);
 
     // Verify task still exists and is in_progress
     const task = getTask(taskId);
@@ -170,6 +198,34 @@ class AgentTaskMonitor {
       );
       return;
     }
+
+    const extracted = extractDispatchCompletion(responseText || "");
+    const decision = evaluateCompletion(task, {
+      payloadDispatchId: extracted.dispatchId,
+      evidenceTimestamp,
+      assistantMessageCount,
+    });
+
+    if (!decision.accepted) {
+      logActivity({
+        id: uuidv4(),
+        type: "task_completion_gate_rejected",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `Completion rejected for task "${task.title}" (${decision.completionReason})`,
+        metadata: {
+          dispatchId: decision.dispatchId,
+          payloadDispatchId: decision.payloadDispatchId,
+          evidenceTimestamp: decision.evidenceTimestamp,
+          completionReason: decision.completionReason,
+          accepted: false,
+        },
+      });
+      return;
+    }
+
+    // Stop monitoring first to prevent duplicate processing
+    this.stopMonitoring(sessionKey);
 
     // Add agent's response as a comment
     if (responseText) {
@@ -182,7 +238,7 @@ class AgentTaskMonitor {
       });
     }
 
-    // Move task to review
+    // Manager-owned transition to review after completion gate acceptance.
     updateTask(taskId, { status: "review" });
 
     const duration = Math.round((Date.now() - monitor.startedAt) / 1000);
@@ -192,7 +248,15 @@ class AgentTaskMonitor {
       task_id: taskId,
       agent_id: agentId,
       message: `Agent "${agentId}" completed work on "${task.title}" in ${duration}s — moved to review`,
-      metadata: { duration, sessionKey },
+      metadata: {
+        duration,
+        sessionKey,
+        dispatchId: task.dispatch_id,
+        payloadDispatchId: extractDispatchCompletion(responseText || "").dispatchId,
+        evidenceTimestamp,
+        completionReason: "accepted",
+        accepted: true,
+      },
     });
 
     addComment({
@@ -203,12 +267,12 @@ class AgentTaskMonitor {
     });
 
     console.log(
-      `[AgentTaskMonitor] Task ${taskId} moved to REVIEW (agent completed in ${duration}s)`
+      `[AgentTaskMonitor] Task ${taskId} moved to REVIEW (completion gate accepted)`
     );
   }
 
   /**
-   * Force-complete a task (on timeout or error) — move to review.
+   * Timeout/error guard: do NOT force-review. Keep task in progress and log rework signal.
    */
   private async forceComplete(
     sessionKey: string,
@@ -218,37 +282,10 @@ class AgentTaskMonitor {
     if (!monitor) return;
 
     const { taskId, agentId } = monitor;
-
-    // Try to get any response before giving up
-    let responseText = "";
-    try {
-      const client = getOpenClawClient();
-      const history = await client.getChatHistory(sessionKey);
-      const assistantMsgs = history.filter((m) => m.role === "assistant");
-      if (assistantMsgs.length > monitor.lastMessageCount) {
-        responseText = assistantMsgs[assistantMsgs.length - 1].content;
-      }
-    } catch {
-      // Ignore — we'll move to review anyway
-    }
-
-    // Stop monitoring
     this.stopMonitoring(sessionKey);
 
     const task = getTask(taskId);
     if (!task || task.status !== "in_progress") return;
-
-    if (responseText) {
-      addComment({
-        id: uuidv4(),
-        task_id: taskId,
-        agent_id: agentId,
-        author_type: "agent",
-        content: responseText,
-      });
-    }
-
-    updateTask(taskId, { status: "review" });
 
     addComment({
       id: uuidv4(),
@@ -256,20 +293,27 @@ class AgentTaskMonitor {
       author_type: "system",
       content:
         reason === "timeout"
-          ? "⏱️ Monitor timeout reached. Task moved to review."
-          : "⚠️ Monitor error occurred. Task moved to review.",
+          ? "⏱️ Completion monitor timeout. Task kept in progress for re-dispatch/rework (no auto-review)."
+          : "⚠️ Completion monitor error. Task kept in progress for re-dispatch/rework (no auto-review).",
     });
 
     logActivity({
       id: uuidv4(),
-      type: "task_review",
+      type: "task_completion_gate_rejected",
       task_id: taskId,
       agent_id: agentId,
-      message: `Task "${task.title}" moved to review (${reason})`,
+      message: `Completion guard kept task in progress (${reason})`,
+      metadata: {
+        dispatchId: task.dispatch_id,
+        payloadDispatchId: null,
+        evidenceTimestamp: new Date().toISOString(),
+        completionReason: "rejected_suspicious_instant_no_new_evidence",
+        accepted: false,
+      },
     });
 
     console.log(
-      `[AgentTaskMonitor] Task ${taskId} force-moved to REVIEW (${reason})`
+      `[AgentTaskMonitor] Task ${taskId} kept IN_PROGRESS (${reason})`
     );
   }
 }

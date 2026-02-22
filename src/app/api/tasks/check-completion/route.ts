@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 import { listTasks, updateTask, addComment, logActivity, listComments } from "@/lib/db";
+import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
 
 /**
  * Extract text content from chat message content.
@@ -109,8 +110,34 @@ export async function GET() {
             });
           }
 
-          // Do not auto-complete on acknowledgements / non-substantive updates.
-          if (!isSubstantiveCompletion(responseText)) {
+          const extracted = extractDispatchCompletion(responseText || "");
+          const evidenceTimestamp = latestResponse.timestamp ?? new Date().toISOString();
+          const decision = evaluateCompletion(task, {
+            payloadDispatchId: extracted.dispatchId,
+            evidenceTimestamp,
+            assistantMessageCount: assistantMsgs.length,
+          });
+
+          if (!decision.accepted) {
+            // Optional secondary filter for non-marker chatter: skip noisy logs.
+            if (!isSubstantiveCompletion(responseText) && !extracted.dispatchId) {
+              continue;
+            }
+
+            logActivity({
+              id: uuidv4(),
+              type: "task_completion_gate_rejected",
+              task_id: task.id,
+              agent_id: task.assigned_agent_id ?? undefined,
+              message: `Completion rejected for "${task.title}" (${decision.completionReason})`,
+              metadata: {
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+                evidenceTimestamp: decision.evidenceTimestamp,
+                completionReason: decision.completionReason,
+                accepted: false,
+              },
+            });
             continue;
           }
 
@@ -132,12 +159,19 @@ export async function GET() {
             task_id: task.id,
             agent_id: task.assigned_agent_id ?? undefined,
             message: `Agent "${task.assigned_agent_id}" completed "${task.title}" — moved to review`,
-            metadata: { duration },
+            metadata: {
+              duration,
+              dispatchId: decision.dispatchId,
+              payloadDispatchId: decision.payloadDispatchId,
+              evidenceTimestamp: decision.evidenceTimestamp,
+              completionReason: decision.completionReason,
+              accepted: true,
+            },
           });
 
           completed.push(task.id);
           console.log(
-            `[check-completion] Task "${task.title}" moved to REVIEW (substantive completion detected)`
+            `[check-completion] Task "${task.title}" moved to REVIEW (completion gate accepted)`
           );
         }
       } catch (err) {

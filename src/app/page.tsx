@@ -1343,7 +1343,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
             </div>
             <div>
               <div className="text-sm font-medium text-primary">{task.assigned_agent_id} is working on this task</div>
-              <div className="text-[11px] text-muted-foreground">Response will appear below when complete. Task will auto-move to Review.</div>
+              <div className="text-[11px] text-muted-foreground">Response will appear below when complete. Manager monitor will move task to Review.</div>
             </div>
           </div>
         )}

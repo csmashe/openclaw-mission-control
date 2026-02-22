@@ -9,6 +9,7 @@ import {
   logActivity,
   listComments,
 } from "@/lib/db";
+import type { ChatMessage } from "@/lib/openclaw-client";
 
 // POST /api/tasks/dispatch - Send a task to an agent for processing
 export async function POST(request: NextRequest) {
@@ -56,11 +57,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Update task to assigned → in_progress
+    const dispatchId = uuidv4();
+    const dispatchStartedAt = new Date().toISOString();
+
+    // Connect early so we can capture baseline evidence before sending this run.
+    const client = getOpenClawClient();
+    await client.connect();
+
+    let baselineAssistantCount = 0;
+    try {
+      const baselineHistory = (await client.getChatHistory(sessionKey)) as ChatMessage[];
+      baselineAssistantCount = baselineHistory.filter((m) => m.role === "assistant").length;
+    } catch {
+      baselineAssistantCount = 0;
+    }
+
+    // Update task to assigned → in_progress with fresh dispatch identity.
     updateTask(taskId, {
       status: "in_progress",
       assigned_agent_id: agentId,
       openclaw_session_key: sessionKey,
+      dispatch_id: dispatchId,
+      dispatch_started_at: dispatchStartedAt,
+      dispatch_message_count_start: baselineAssistantCount,
     });
 
     logActivity({
@@ -71,18 +90,15 @@ export async function POST(request: NextRequest) {
       message: isRework
         ? `Agent "${agentId}" re-processing "${task.title}" with feedback`
         : `Agent "${agentId}" started working on "${task.title}"`,
-      metadata: { sessionKey },
+      metadata: { sessionKey, dispatchId, dispatchStartedAt, baselineAssistantCount },
     });
 
     // Build the prompt
     const prompt = isRework
-      ? buildReworkPrompt(task, feedback, taskId)
-      : buildTaskPrompt(task);
+      ? buildReworkPrompt(task, feedback, taskId, dispatchId)
+      : buildTaskPrompt(task, dispatchId);
 
-    // Connect and send to agent
-    const client = getOpenClawClient();
-    await client.connect();
-
+    // Send to agent
     try {
       // If a model override is specified, patch the session before sending
       if (model) {
@@ -110,15 +126,20 @@ export async function POST(request: NextRequest) {
 
       // Register with the AgentTaskMonitor for event-driven completion
       const monitor = getAgentTaskMonitor();
-      await monitor.startMonitoring(taskId, sessionKey, agentId);
+      await monitor.startMonitoring(taskId, sessionKey, agentId, {
+        dispatchId,
+        dispatchStartedAt,
+        baselineAssistantCount,
+      });
 
       return NextResponse.json({
         ok: true,
         status: "dispatched",
         sessionKey,
+        dispatchId,
         monitoring: true,
         isRework,
-        message: "Task sent to agent. Will auto-move to review when complete.",
+        message: "Task sent to agent. Manager monitor will move to review after valid completion.",
       });
     } catch (sendError) {
       addComment({
@@ -153,7 +174,7 @@ function buildTaskPrompt(task: {
   title: string;
   description: string;
   priority: string;
-}): string {
+}, dispatchId: string): string {
   return `## Task Assignment
 
 **Title:** ${task.title}
@@ -164,13 +185,23 @@ ${task.description || "No additional details provided."}
 
 ---
 
+**Environment constraints:**
+- Use Claude CLI only for implementation work in this environment.
+- Do not assume Codex CLI is installed.
+
+**Dispatch ID:** ${dispatchId}
+
+When complete, respond exactly with:
+TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
+
 Please complete this task. Provide a clear, actionable response with your findings or deliverables. Be concise but thorough.`;
 }
 
 function buildReworkPrompt(
   task: { title: string; description: string; priority: string },
   feedback: string,
-  taskId: string
+  taskId: string,
+  dispatchId: string
 ): string {
   // Get previous comments for context
   const comments = listComments(taskId);
@@ -202,6 +233,15 @@ ${commentHistory || "No previous comments."}
 ${feedback}
 
 ---
+
+**Environment constraints:**
+- Use Claude CLI only for implementation work in this environment.
+- Do not assume Codex CLI is installed.
+
+**Dispatch ID:** ${dispatchId}
+
+When complete, respond exactly with:
+TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
 
 Please address the feedback above and provide an updated response. Consider all previous discussion context.`;
 }

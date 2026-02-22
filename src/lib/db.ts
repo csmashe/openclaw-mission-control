@@ -48,6 +48,9 @@ function initializeSchema(db: Database.Database): void {
       mission_id TEXT,
       assigned_agent_id TEXT,
       openclaw_session_key TEXT,
+      dispatch_id TEXT,
+      dispatch_started_at TEXT,
+      dispatch_message_count_start INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
@@ -82,6 +85,17 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(type);
   `);
+
+  const taskColumns = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map((c) => c.name);
+  if (!taskColumns.includes("dispatch_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_id TEXT");
+  }
+  if (!taskColumns.includes("dispatch_started_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_started_at TEXT");
+  }
+  if (!taskColumns.includes("dispatch_message_count_start")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_message_count_start INTEGER DEFAULT 0");
+  }
 }
 
 // --- Missions ---
@@ -166,6 +180,9 @@ export interface Task {
   mission_id: string | null;
   assigned_agent_id: string | null;
   openclaw_session_key: string | null;
+  dispatch_id: string | null;
+  dispatch_started_at: string | null;
+  dispatch_message_count_start: number;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -245,6 +262,9 @@ export function updateTask(
     mission_id: string | null;
     assigned_agent_id: string | null;
     openclaw_session_key: string | null;
+    dispatch_id: string | null;
+    dispatch_started_at: string | null;
+    dispatch_message_count_start: number;
     sort_order: number;
   }>
 ): Task | undefined {
