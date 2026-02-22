@@ -16,6 +16,17 @@ import { Button } from "@/components/ui/button";
 interface UsageData {
   usage: Record<string, unknown> | null;
   cost: Record<string, unknown> | null;
+  sessions?: Array<Record<string, unknown>> | null;
+}
+
+interface CostDailyRow {
+  date?: string;
+  totalCost?: number;
+  totalTokens?: number;
+  input?: number;
+  output?: number;
+  byAgent?: Record<string, { totalTokens?: number; totalCost?: number }>;
+  by_agent?: Record<string, { totalTokens?: number; totalCost?: number }>;
 }
 
 function formatTokens(n: number | undefined | null): string {
@@ -154,29 +165,128 @@ export function CostDashboard() {
   // Extract whatever data the gateway returns
   const usage = (data?.usage || {}) as Record<string, unknown>;
   const cost = (data?.cost || {}) as Record<string, unknown>;
+  const daily = Array.isArray(cost.daily) ? (cost.daily as Array<CostDailyRow>) : [];
 
-  const inputTokens = (usage.inputTokens as number) || (usage.input_tokens as number) || 0;
-  const outputTokens = (usage.outputTokens as number) || (usage.output_tokens as number) || 0;
-  const totalTokens = (usage.totalTokens as number) || (usage.total_tokens as number) || inputTokens + outputTokens;
-  const totalCost = (cost.totalCost as number) || (cost.total as number) || (cost.cost as number) || 0;
-  const sessions = (usage.sessions as number) || (usage.activeSessions as number) || 0;
+  const periodDays = period === "today" ? 1 : period === "7d" ? 7 : 30;
+  const selectedDays = daily.slice(-periodDays);
 
-  // Mock daily data for chart (real data would come from usage API over time)
-  const dailyData = [
-    { label: "Mon", value: Math.round(totalTokens * 0.12), color: "oklch(0.58 0.2 260)" },
-    { label: "Tue", value: Math.round(totalTokens * 0.18), color: "oklch(0.58 0.2 260)" },
-    { label: "Wed", value: Math.round(totalTokens * 0.15), color: "oklch(0.58 0.2 260)" },
-    { label: "Thu", value: Math.round(totalTokens * 0.22), color: "oklch(0.58 0.2 260)" },
-    { label: "Fri", value: Math.round(totalTokens * 0.13), color: "oklch(0.58 0.2 260)" },
-    { label: "Sat", value: Math.round(totalTokens * 0.1), color: "oklch(0.58 0.2 260 / 0.5)" },
-    { label: "Sun", value: Math.round(totalTokens * 0.1), color: "oklch(0.58 0.2 260 / 0.5)" },
-  ];
+  const sum = (key: "input" | "output" | "totalCost" | "totalTokens"): number =>
+    selectedDays.reduce((acc, row) => acc + (Number(row[key] ?? 0) || 0), 0);
 
-  const agentBreakdown = [
-    { label: "main", value: 65, color: "oklch(0.58 0.2 260)" },
-    { label: "hooks", value: 25, color: "oklch(0.7 0.17 162)" },
-    { label: "beta", value: 10, color: "oklch(0.77 0.19 70)" },
-  ];
+  const inputTokensRaw = selectedDays.length ? sum("input") : null;
+  const outputTokensRaw = selectedDays.length ? sum("output") : null;
+  const totalCostRaw = selectedDays.length ? sum("totalCost") : null;
+
+  const inputTokens =
+    inputTokensRaw ??
+    (usage.inputTokens as number | undefined | null) ??
+    (usage.input_tokens as number | undefined | null) ??
+    0;
+  const outputTokens =
+    outputTokensRaw ??
+    (usage.outputTokens as number | undefined | null) ??
+    (usage.output_tokens as number | undefined | null) ??
+    0;
+  const totalCost =
+    totalCostRaw ??
+    (cost.totalCost as number | undefined | null) ??
+    (cost.total as number | undefined | null) ??
+    (cost.cost as number | undefined | null) ??
+    0;
+
+  const sessionsFromList = Array.isArray(data?.sessions) ? data.sessions.length : undefined;
+  const sessions =
+    sessionsFromList ??
+    (usage.sessions as number | undefined | null) ??
+    (usage.activeSessions as number | undefined | null) ??
+    0;
+
+  const dailyData = selectedDays.map((row) => {
+    const date = String(row.date || "");
+    const total = row.totalTokens;
+    const value =
+      total !== null && total !== undefined
+        ? Number(total)
+        : (Number(row.input ?? 0) + Number(row.output ?? 0));
+
+    return {
+      label: date ? date.slice(5) : "—",
+      value: Number.isFinite(value) ? value : 0,
+      color: "oklch(0.58 0.2 260)",
+    };
+  });
+
+  const providers = Array.isArray(usage.providers)
+    ? (usage.providers as Array<{
+        provider?: string;
+        displayName?: string;
+        windows?: Array<{ label?: string; usedPercent?: number }>;
+      }>)
+    : [];
+
+  const providerWindows = providers
+    .flatMap((p) => {
+      const windows = Array.isArray(p.windows) ? p.windows : [];
+      return windows.map((w) => ({
+        label: `${p.displayName || p.provider || "provider"} ${w.label || ""}`.trim(),
+        value: Number(w.usedPercent) || 0,
+        color: "oklch(0.58 0.2 260)",
+      }));
+    })
+    .filter((w) => w.value > 0);
+
+  const sessionsByAgent = (() => {
+    // Prefer period-aware cost breakdown when available.
+    const fromDaily = new Map<string, number>();
+    for (const row of selectedDays) {
+      const byAgent = row.byAgent || row.by_agent;
+      if (!byAgent || typeof byAgent !== "object") continue;
+      for (const [agent, metrics] of Object.entries(byAgent)) {
+        const tokenOrCost =
+          metrics?.totalTokens !== null && metrics?.totalTokens !== undefined
+            ? metrics.totalTokens
+            : metrics?.totalCost;
+        const inc = Number(tokenOrCost ?? 0);
+        fromDaily.set(agent.toLowerCase(), (fromDaily.get(agent.toLowerCase()) || 0) + inc);
+      }
+    }
+
+    const sourceMap = fromDaily.size > 0 ? fromDaily : (() => {
+      // Fallback to session activity in selected period.
+      const list = (data?.sessions || []) as Array<{
+        agentId?: string;
+        key?: string;
+        updatedAt?: number;
+        lastActivity?: number;
+      }>;
+      const now = Date.now();
+      const cutoffMs = now - periodDays * 24 * 60 * 60 * 1000;
+      const counts = new Map<string, number>();
+
+      for (const s of list) {
+        const activityMs = Number(s.lastActivity) || Number(s.updatedAt) || 0;
+        if (activityMs && activityMs < cutoffMs) continue;
+
+        let agent = s.agentId;
+        if (!agent && typeof s.key === "string") {
+          const m = s.key.match(/^agent:([^:]+):/);
+          if (m?.[1]) agent = m[1];
+        }
+        const key = (agent || "main").toLowerCase();
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+
+      return counts;
+    })();
+
+    return Array.from(sourceMap.entries())
+      .map(([label, value], i) => ({
+        label,
+        value,
+        color: ["oklch(0.58 0.2 260)", "oklch(0.7 0.17 162)", "oklch(0.77 0.19 70)"][i % 3],
+      }))
+      .sort((a, b) => b.value - a.value);
+  })();
 
   return (
     <div className="flex-1 overflow-auto p-6">
@@ -262,21 +372,27 @@ export function CostDashboard() {
           <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">
             Usage Over Time
           </h3>
-          {totalTokens > 0 ? (
+          {dailyData.length > 0 && dailyData.some((d) => d.value > 0) ? (
             <BarChart data={dailyData} maxHeight={140} />
           ) : (
             <div className="flex items-center justify-center h-[140px] text-sm text-muted-foreground">
-              No usage data yet
+              No usage data yet for selected period
             </div>
           )}
         </div>
 
-        {/* By Agent */}
+        {/* By Agent (active sessions) */}
         <div className="glass-panel rounded-lg p-5">
           <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">
             By Agent
           </h3>
-          <HorizontalBar items={agentBreakdown} />
+          {sessionsByAgent.length > 0 ? (
+            <HorizontalBar items={sessionsByAgent} />
+          ) : providerWindows.length > 0 ? (
+            <HorizontalBar items={providerWindows} />
+          ) : (
+            <div className="text-sm text-muted-foreground">No agent activity data yet</div>
+          )}
         </div>
       </div>
 

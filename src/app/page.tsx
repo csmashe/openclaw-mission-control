@@ -104,6 +104,19 @@ interface GatewayStatus {
   connected: boolean;
   agentCount: number;
   cronJobCount: number;
+  error?: string;
+}
+
+interface DevicePairStatus {
+  pendingCount: number;
+  latestPending?: {
+    requestId?: string;
+    displayName?: string;
+    clientId?: string;
+    clientMode?: string;
+    scopes?: string[];
+  } | null;
+  error?: string;
 }
 
 type ColumnId = "inbox" | "assigned" | "in_progress" | "review" | "done";
@@ -225,6 +238,8 @@ export default function Dashboard() {
     agentCount: 0,
     cronJobCount: 0,
   });
+  const [devicePairStatus, setDevicePairStatus] = useState<DevicePairStatus>({ pendingCount: 0 });
+  const [approvingDevicePair, setApprovingDevicePair] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
@@ -280,19 +295,59 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchDevicePairStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/openclaw/device-pair");
+      const data = await res.json();
+      setDevicePairStatus({
+        pendingCount: data?.pendingCount ?? 0,
+        latestPending: data?.latestPending ?? null,
+        error: data?.error,
+      });
+    } catch (error) {
+      setDevicePairStatus({ pendingCount: 0, error: String(error) });
+    }
+  }, []);
+
+  const approveLatestDevicePair = useCallback(async () => {
+    setApprovingDevicePair(true);
+    try {
+      const res = await fetch("/api/openclaw/device-pair", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const detail = body?.error || `HTTP ${res.status}`;
+        setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${detail}` }));
+        return;
+      }
+      setDevicePairStatus((prev) => ({ ...prev, error: undefined }));
+      await fetchDevicePairStatus();
+      await fetchGatewayStatus();
+      await fetchAgents();
+    } catch (err) {
+      setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${String(err)}` }));
+    } finally {
+      setApprovingDevicePair(false);
+    }
+  }, [fetchAgents, fetchDevicePairStatus, fetchGatewayStatus]);
+
   useEffect(() => {
     fetchTasks();
     fetchActivity();
     fetchAgents();
     fetchGatewayStatus();
+    fetchDevicePairStatus();
+
     const interval = setInterval(async () => {
       // Check if any agent-assigned tasks have completed before fetching
       try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
       fetchTasks();
       fetchActivity();
+      fetchGatewayStatus();
+      fetchDevicePairStatus();
     }, 5000);
+
     return () => clearInterval(interval);
-  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus]);
+  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus, fetchDevicePairStatus]);
 
   // --- Task Actions ---
 
@@ -527,6 +582,38 @@ export default function Dashboard() {
             <ThemeToggle />
           </div>
         </header>
+
+        {devicePairStatus.pendingCount > 0 && (
+          <div className="z-10 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 flex items-center justify-between gap-3">
+            <div className="text-xs">
+              <span className="font-semibold text-amber-300">Device approval required:</span>{" "}
+              <span className="text-amber-100/90">
+                Mission Control has {devicePairStatus.pendingCount} pending pairing request{devicePairStatus.pendingCount > 1 ? "s" : ""}.
+                {devicePairStatus.error && (
+                  <span className="text-red-400 ml-2">{devicePairStatus.error}</span>
+                )}
+              </span>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={approveLatestDevicePair}
+                    disabled={approvingDevicePair}
+                    className="h-7 text-xs"
+                  >
+                    {approvingDevicePair ? "Approving..." : "Approve latest device"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Approve latest pending device request</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
 
         {/* Content area */}
         <div className="flex-1 flex overflow-hidden z-10 relative">
@@ -1209,7 +1296,7 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[600px] h-[85vh] max-h-[90vh] overflow-hidden flex flex-col min-h-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {task.title}
@@ -1256,52 +1343,54 @@ function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
             </div>
             <div>
               <div className="text-sm font-medium text-primary">{task.assigned_agent_id} is working on this task</div>
-              <div className="text-[11px] text-muted-foreground">Response will appear below when complete. Task will auto-move to Review.</div>
+              <div className="text-[11px] text-muted-foreground">Response will appear below when complete. Manager monitor will move task to Review.</div>
             </div>
           </div>
         )}
 
         {/* Comments */}
-        <div className="flex-1 space-y-2 min-h-0">
-          <h4 className="text-sm font-medium text-muted-foreground">
+        <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
+          <h4 className="text-sm font-medium text-muted-foreground shrink-0">
             Activity ({comments.length})
           </h4>
-          {loading ? (
-            <div className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading...</div>
-          ) : comments.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">
-              No activity yet. Assign an agent to start working on this task.
-            </div>
-          ) : (
-            <ScrollArea className="max-h-[250px]" ref={scrollRef}>
-              <div className="space-y-2">
-                {comments.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`p-3 rounded-md text-sm border ${
-                      c.author_type === "agent"
-                        ? "bg-primary/5 border-primary/20"
-                        : c.author_type === "system"
-                        ? "bg-blue-500/5 border-blue-500/20"
-                        : "bg-amber-500/5 border-amber-500/20"
-                    }`}
-                  >
-                    <div className={`text-[11px] font-bold uppercase mb-1 ${
-                      c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
-                    }`}>
-                      {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
-                    </div>
-                    <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
-                      {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-1">
-                      {timeAgo(c.created_at)}
-                    </div>
-                  </div>
-                ))}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {loading ? (
+              <div className="h-full text-sm text-muted-foreground animate-pulse py-4 text-center overflow-y-auto">Loading...</div>
+            ) : comments.length === 0 ? (
+              <div className="h-full text-sm text-muted-foreground py-4 text-center overflow-y-auto">
+                No activity yet. Assign an agent to start working on this task.
               </div>
-            </ScrollArea>
-          )}
+            ) : (
+              <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
+                <div className="space-y-2">
+                  {comments.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`p-3 rounded-md text-sm border ${
+                        c.author_type === "agent"
+                          ? "bg-primary/5 border-primary/20"
+                          : c.author_type === "system"
+                          ? "bg-blue-500/5 border-blue-500/20"
+                          : "bg-amber-500/5 border-amber-500/20"
+                      }`}
+                    >
+                      <div className={`text-[11px] font-bold uppercase mb-1 ${
+                        c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
+                      }`}>
+                        {c.author_type === "agent" ? `🤖 ${c.agent_id || "Agent"}` : c.author_type === "system" ? "⚙️ System" : "👤 You"}
+                      </div>
+                      <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
+                        {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {timeAgo(c.created_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* User Comment Input */}

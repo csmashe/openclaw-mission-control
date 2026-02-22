@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 import { listTasks, updateTask, addComment, logActivity, listComments } from "@/lib/db";
+import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
 
 /**
  * Extract text content from chat message content.
@@ -20,6 +21,40 @@ function extractTextContent(content: unknown): string {
     return JSON.stringify(content);
   }
   return "";
+}
+
+function isSubstantiveCompletion(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+
+  // Fast reject for acknowledgement-only replies.
+  const ackOnly = [
+    /^on it[.!]?$/i,
+    /^working on it[.!]?$/i,
+    /^i'?ll handle it[.!]?$/i,
+    /^starting now[.!]?$/i,
+    /^got it[.!]?$/i,
+  ];
+  if (ackOnly.some((rx) => rx.test(t))) return false;
+
+  // Require concrete completion language + implementation evidence signal.
+  const lower = t.toLowerCase();
+  const hasCompletionSignal =
+    lower.includes("done") ||
+    lower.includes("completed") ||
+    lower.includes("implemented") ||
+    lower.includes("finished");
+
+  const hasEvidenceSignal =
+    lower.includes("changed files") ||
+    lower.includes("diff") ||
+    lower.includes("verification") ||
+    lower.includes("build") ||
+    lower.includes("test") ||
+    lower.includes("output");
+
+  // Length floor avoids tiny one-liners auto-completing tasks.
+  return hasCompletionSignal && hasEvidenceSignal && t.length >= 120;
 }
 
 /**
@@ -52,31 +87,60 @@ export async function GET() {
         const history = await client.getChatHistory(task.openclaw_session_key!);
         const assistantMsgs = history.filter((m) => m.role === "assistant");
 
-        // If there are assistant messages, the agent has responded
+        // If there are assistant messages, check whether latest one is substantive completion.
         if (assistantMsgs.length > 0) {
           const latestResponse = assistantMsgs[assistantMsgs.length - 1];
-          // Content may be a string or an array of content blocks
           const responseText = extractTextContent(latestResponse.content);
+          const existingComments = listComments(task.id);
 
-          if (responseText) {
-            // Add agent response as comment (check if we already added it)
-            const existingComments = listComments(task.id);
-            const alreadyHasAgentComment = existingComments.some(
-              (c) => c.author_type === "agent"
-            );
+          const sameAgentCommentExists = responseText
+            ? existingComments.some(
+                (c) => c.author_type === "agent" && c.content.trim() === responseText.trim()
+              )
+            : false;
 
-            if (!alreadyHasAgentComment) {
-              addComment({
-                id: uuidv4(),
-                task_id: task.id,
-                agent_id: task.assigned_agent_id!,
-                author_type: "agent",
-                content: responseText,
-              });
-            }
+          // Persist latest agent response once for review context, even if not completion.
+          if (responseText && !sameAgentCommentExists) {
+            addComment({
+              id: uuidv4(),
+              task_id: task.id,
+              agent_id: task.assigned_agent_id!,
+              author_type: "agent",
+              content: responseText,
+            });
           }
 
-          // Move to review
+          const extracted = extractDispatchCompletion(responseText || "");
+          const evidenceTimestamp = latestResponse.timestamp ?? new Date().toISOString();
+          const decision = evaluateCompletion(task, {
+            payloadDispatchId: extracted.dispatchId,
+            evidenceTimestamp,
+            assistantMessageCount: assistantMsgs.length,
+          });
+
+          if (!decision.accepted) {
+            // Optional secondary filter for non-marker chatter: skip noisy logs.
+            if (!isSubstantiveCompletion(responseText) && !extracted.dispatchId) {
+              continue;
+            }
+
+            logActivity({
+              id: uuidv4(),
+              type: "task_completion_gate_rejected",
+              task_id: task.id,
+              agent_id: task.assigned_agent_id ?? undefined,
+              message: `Completion rejected for "${task.title}" (${decision.completionReason})`,
+              metadata: {
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+                evidenceTimestamp: decision.evidenceTimestamp,
+                completionReason: decision.completionReason,
+                accepted: false,
+              },
+            });
+            continue;
+          }
+
           updateTask(task.id, { status: "review" });
 
           const createdAt = new Date(task.updated_at).getTime();
@@ -95,12 +159,19 @@ export async function GET() {
             task_id: task.id,
             agent_id: task.assigned_agent_id ?? undefined,
             message: `Agent "${task.assigned_agent_id}" completed "${task.title}" — moved to review`,
-            metadata: { duration },
+            metadata: {
+              duration,
+              dispatchId: decision.dispatchId,
+              payloadDispatchId: decision.payloadDispatchId,
+              evidenceTimestamp: decision.evidenceTimestamp,
+              completionReason: decision.completionReason,
+              accepted: true,
+            },
           });
 
           completed.push(task.id);
           console.log(
-            `[check-completion] Task "${task.title}" moved to REVIEW (agent completed)`
+            `[check-completion] Task "${task.title}" moved to REVIEW (completion gate accepted)`
           );
         }
       } catch (err) {
