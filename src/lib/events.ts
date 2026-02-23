@@ -1,11 +1,20 @@
 /**
  * Server-Sent Events (SSE) broadcaster for real-time updates.
  * Manages client connections and broadcasts events to all listeners.
+ * Uses globalThis to ensure a single shared Set across module instances.
  */
 
 import type { SSEEvent } from "./sse-types";
 
-const clients = new Set<ReadableStreamDefaultController>();
+const globalForSSE = globalThis as typeof globalThis & {
+  __sseClients?: Set<ReadableStreamDefaultController>;
+};
+
+if (!globalForSSE.__sseClients) {
+  globalForSSE.__sseClients = new Set<ReadableStreamDefaultController>();
+}
+
+const clients = globalForSSE.__sseClients;
 
 export function registerClient(controller: ReadableStreamDefaultController): void {
   clients.add(controller);

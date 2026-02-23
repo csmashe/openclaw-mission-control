@@ -10,10 +10,29 @@ const globalForDb = globalThis as typeof globalThis & {
   __missionControlDb?: Database.Database;
 };
 
+const DEFAULT_DB_PATH = "/home/csmashe/.openclaw/mission-control/data/mission-control.db";
+
+function resolveDbPath(): string {
+  const configuredPath = process.env.MISSION_CONTROL_DB_PATH?.trim();
+
+  if (!configuredPath) {
+    return DEFAULT_DB_PATH;
+  }
+
+  if (path.isAbsolute(configuredPath)) {
+    return path.normalize(configuredPath);
+  }
+
+  // Avoid standalone/runtime cwd differences by anchoring relative overrides
+  // to the canonical data directory rather than process.cwd().
+  const canonicalDataDir = path.dirname(DEFAULT_DB_PATH);
+  return path.resolve(canonicalDataDir, configuredPath);
+}
+
 export function getDb(): Database.Database {
   if (globalForDb.__missionControlDb) return globalForDb.__missionControlDb;
 
-  const dbPath = path.resolve(process.cwd(), "data", "mission-control.db");
+  const dbPath = resolveDbPath();
 
   // Ensure data directory exists
   const dir = path.dirname(dbPath);
@@ -46,7 +65,7 @@ function initializeSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT DEFAULT '',
-      status TEXT DEFAULT 'inbox' CHECK(status IN ('inbox', 'assigned', 'in_progress', 'review', 'done')),
+      status TEXT DEFAULT 'inbox' CHECK(status IN ('inbox', 'planning', 'assigned', 'in_progress', 'testing', 'review', 'done')),
       priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
       mission_id TEXT,
       assigned_agent_id TEXT,

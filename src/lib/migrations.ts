@@ -33,6 +33,41 @@ const MIGRATIONS: Migration[] = [
     `,
   },
   {
+    id: "004_expand_status_check",
+    sql: `
+      CREATE TABLE IF NOT EXISTS tasks_new (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        status TEXT DEFAULT 'inbox' CHECK(status IN ('inbox', 'planning', 'assigned', 'in_progress', 'testing', 'review', 'done')),
+        priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
+        mission_id TEXT,
+        assigned_agent_id TEXT,
+        openclaw_session_key TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        gateway_id TEXT,
+        dispatch_id TEXT,
+        dispatch_started_at TEXT,
+        dispatch_message_count_start INTEGER DEFAULT 0,
+        planning_session_key TEXT,
+        planning_messages TEXT DEFAULT '[]',
+        planning_complete INTEGER DEFAULT 0,
+        planning_spec TEXT,
+        planning_agents TEXT,
+        planning_dispatch_error TEXT,
+        FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE SET NULL
+      );
+      INSERT INTO tasks_new SELECT * FROM tasks;
+      DROP TABLE tasks;
+      ALTER TABLE tasks_new RENAME TO tasks;
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_mission ON tasks(mission_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(assigned_agent_id);
+    `,
+  },
+  {
     id: "003_openclaw_sessions",
     sql: `
       CREATE TABLE IF NOT EXISTS openclaw_sessions (
