@@ -2,13 +2,14 @@ import { v4 as uuidv4 } from "uuid";
 import { getTask, logActivity, updateTask, type Task } from "@/lib/db";
 import { broadcast } from "@/lib/events";
 
-export type TaskStatus = "inbox" | "planning" | "assigned" | "in_progress" | "review" | "done";
+export type TaskStatus = "inbox" | "planning" | "assigned" | "in_progress" | "testing" | "review" | "done";
 
 const ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   inbox: ["planning", "assigned", "done"],
   planning: ["inbox", "assigned", "done"],
   assigned: ["inbox", "in_progress", "review", "done"],
-  in_progress: ["assigned", "review", "done"],
+  in_progress: ["assigned", "testing", "review", "done"],
+  testing: ["assigned", "review", "done"],
   review: ["assigned", "in_progress", "done"],
   done: ["review"],
 };

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
-import { listTasks, addComment, logActivity, listComments } from "@/lib/db";
+import { listTasks, addComment, logActivity, listComments, listDeliverables } from "@/lib/db";
 import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { reconcileTaskRuntimeTruth } from "@/lib/task-reconciler";
@@ -146,46 +146,100 @@ export async function GET() {
             continue;
           }
 
-          transitionTaskStatus(task.id, "review", {
-            actor: "monitor",
-            reason: "completion_gate_accepted",
-            agentId: task.assigned_agent_id ?? undefined,
-            metadata: {
-              dispatchId: decision.dispatchId,
-              payloadDispatchId: decision.payloadDispatchId,
-            },
-          });
-
           const createdAt = new Date(task.updated_at).getTime();
           const duration = Math.round((Date.now() - createdAt) / 1000);
 
-          addComment({
-            id: uuidv4(),
-            task_id: task.id,
-            author_type: "system",
-            content: `✅ Agent completed in ~${duration}s. Task moved to review.`,
-          });
+          // Check for testable deliverables
+          const deliverables = listDeliverables(task.id);
+          const hasTestableDeliverables = deliverables.some(
+            (d) => d.deliverable_type === "file" || d.deliverable_type === "url"
+          );
 
-          logActivity({
-            id: uuidv4(),
-            type: "task_review",
-            task_id: task.id,
-            agent_id: task.assigned_agent_id ?? undefined,
-            message: `Agent "${task.assigned_agent_id}" completed "${task.title}" — moved to review`,
-            metadata: {
-              duration,
-              dispatchId: decision.dispatchId,
-              payloadDispatchId: decision.payloadDispatchId,
-              evidenceTimestamp: decision.evidenceTimestamp,
-              completionReason: decision.completionReason,
-              accepted: true,
-            },
-          });
+          if (hasTestableDeliverables) {
+            // Route through automated testing
+            transitionTaskStatus(task.id, "testing", {
+              actor: "monitor",
+              reason: "completion_gate_accepted_testing",
+              agentId: task.assigned_agent_id ?? undefined,
+              metadata: {
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+              },
+            });
+
+            addComment({
+              id: uuidv4(),
+              task_id: task.id,
+              author_type: "system",
+              content: `Agent completed in ~${duration}s. Running automated tests on deliverables...`,
+            });
+
+            logActivity({
+              id: uuidv4(),
+              type: "task_testing",
+              task_id: task.id,
+              agent_id: task.assigned_agent_id ?? undefined,
+              message: `Agent "${task.assigned_agent_id}" completed "${task.title}" — running automated tests`,
+              metadata: {
+                duration,
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+                evidenceTimestamp: decision.evidenceTimestamp,
+                completionReason: decision.completionReason,
+                accepted: true,
+              },
+            });
+
+            // Trigger test endpoint (fire-and-forget)
+            try {
+              const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
+              fetch(`${baseUrl}/api/tasks/${task.id}/test`, { method: "POST" }).catch(() => {});
+            } catch { /* ignore */ }
+
+            console.log(
+              `[check-completion] Task "${task.title}" moved to TESTING (completion gate accepted, deliverables found)`
+            );
+          } else {
+            // No deliverables — go straight to review (backward compatible)
+            transitionTaskStatus(task.id, "review", {
+              actor: "monitor",
+              reason: "completion_gate_accepted",
+              agentId: task.assigned_agent_id ?? undefined,
+              metadata: {
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+              },
+            });
+
+            addComment({
+              id: uuidv4(),
+              task_id: task.id,
+              author_type: "system",
+              content: `✅ Agent completed in ~${duration}s. Task moved to review.`,
+            });
+
+            logActivity({
+              id: uuidv4(),
+              type: "task_review",
+              task_id: task.id,
+              agent_id: task.assigned_agent_id ?? undefined,
+              message: `Agent "${task.assigned_agent_id}" completed "${task.title}" — moved to review`,
+              metadata: {
+                duration,
+                dispatchId: decision.dispatchId,
+                payloadDispatchId: decision.payloadDispatchId,
+                evidenceTimestamp: decision.evidenceTimestamp,
+                completionReason: decision.completionReason,
+                accepted: true,
+              },
+            });
+
+            console.log(
+              `[check-completion] Task "${task.title}" moved to REVIEW (completion gate accepted)`
+            );
+          }
 
           completed.push(task.id);
-          console.log(
-            `[check-completion] Task "${task.title}" moved to REVIEW (completion gate accepted)`
-          );
         }
       } catch (err) {
         console.error(

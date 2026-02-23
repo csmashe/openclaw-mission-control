@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "./openclaw-client";
-import { getTask, addComment, logActivity } from "./db";
+import { getTask, addComment, logActivity, listDeliverables } from "./db";
 import { evaluateCompletion, extractDispatchCompletion } from "./completion-gate";
 import { transitionTaskStatus } from "./task-state";
 
@@ -407,45 +407,91 @@ class AgentTaskMonitor {
       });
     }
 
-    // Manager-owned transition to review after completion gate acceptance.
-    transitionTaskStatus(taskId, "review", {
-      actor: "monitor",
-      reason: "completion_gate_accepted",
-      agentId,
-      metadata: {
-        sessionKey,
-        dispatchId: task.dispatch_id,
-      },
-    });
-
     const duration = Math.round((Date.now() - monitor.startedAt) / 1000);
-    logActivity({
-      id: uuidv4(),
-      type: "task_review",
-      task_id: taskId,
-      agent_id: agentId,
-      message: `Agent "${agentId}" completed work on "${task.title}" in ${duration}s — moved to review`,
-      metadata: {
-        duration,
-        sessionKey,
-        dispatchId: task.dispatch_id,
-        payloadDispatchId: extractDispatchCompletion(responseText || "").dispatchId,
-        evidenceTimestamp,
-        completionReason: "accepted",
-        accepted: true,
-      },
-    });
 
-    addComment({
-      id: uuidv4(),
-      task_id: taskId,
-      author_type: "system",
-      content: `✅ Agent completed in ${duration}s. Task moved to review.`,
-    });
-
-    console.log(
-      `[AgentTaskMonitor] Task ${taskId} moved to REVIEW (completion gate accepted)`
+    // Check if task has testable deliverables — if so, route through testing
+    const deliverables = listDeliverables(taskId);
+    const hasTestableDeliverables = deliverables.some(
+      (d) => d.deliverable_type === "file" || d.deliverable_type === "url"
     );
+
+    if (hasTestableDeliverables) {
+      // Route through automated testing before review
+      transitionTaskStatus(taskId, "testing", {
+        actor: "monitor",
+        reason: "completion_gate_accepted_testing",
+        agentId,
+        metadata: { sessionKey, dispatchId: task.dispatch_id },
+      });
+
+      logActivity({
+        id: uuidv4(),
+        type: "task_testing",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `Agent "${agentId}" completed work on "${task.title}" in ${duration}s — running automated tests`,
+        metadata: {
+          duration, sessionKey,
+          dispatchId: task.dispatch_id,
+          payloadDispatchId: extractDispatchCompletion(responseText || "").dispatchId,
+          evidenceTimestamp, completionReason: "accepted", accepted: true,
+        },
+      });
+
+      addComment({
+        id: uuidv4(),
+        task_id: taskId,
+        author_type: "system",
+        content: `Agent completed in ${duration}s. Running automated tests on deliverables...`,
+      });
+
+      // Trigger test endpoint
+      try {
+        const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
+        fetch(`${baseUrl}/api/tasks/${taskId}/test`, { method: "POST" }).catch((err) =>
+          console.error(`[AgentTaskMonitor] Test trigger failed for ${taskId}:`, err)
+        );
+      } catch (err) {
+        console.error(`[AgentTaskMonitor] Test trigger error for ${taskId}:`, err);
+      }
+
+      console.log(
+        `[AgentTaskMonitor] Task ${taskId} moved to TESTING (completion gate accepted, deliverables found)`
+      );
+    } else {
+      // No deliverables — go straight to review (backward compatible)
+      transitionTaskStatus(taskId, "review", {
+        actor: "monitor",
+        reason: "completion_gate_accepted",
+        agentId,
+        metadata: { sessionKey, dispatchId: task.dispatch_id },
+      });
+
+      logActivity({
+        id: uuidv4(),
+        type: "task_review",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `Agent "${agentId}" completed work on "${task.title}" in ${duration}s — moved to review`,
+        metadata: {
+          duration, sessionKey,
+          dispatchId: task.dispatch_id,
+          payloadDispatchId: extractDispatchCompletion(responseText || "").dispatchId,
+          evidenceTimestamp, completionReason: "accepted", accepted: true,
+        },
+      });
+
+      addComment({
+        id: uuidv4(),
+        task_id: taskId,
+        author_type: "system",
+        content: `✅ Agent completed in ${duration}s. Task moved to review.`,
+      });
+
+      console.log(
+        `[AgentTaskMonitor] Task ${taskId} moved to REVIEW (completion gate accepted)`
+      );
+    }
   }
 
   /**

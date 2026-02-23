@@ -28,6 +28,7 @@ export function getColumnDotColor(id: ColumnId): string {
     case "planning": return "bg-violet-500";
     case "assigned": return "bg-primary/50";
     case "in_progress": return "bg-primary shadow-[0_0_8px_oklch(0.58_0.2_260)]";
+    case "testing": return "bg-cyan-500";
     case "review": return "bg-purple-500";
     case "done": return "bg-green-500";
   }
