@@ -4,12 +4,13 @@ import { getOpenClawClient } from "@/lib/openclaw-client";
 import { getAgentTaskMonitor } from "@/lib/agent-task-monitor";
 import {
   getTask,
-  updateTask,
   addComment,
   logActivity,
   listComments,
 } from "@/lib/db";
 import type { ChatMessage } from "@/lib/openclaw-client";
+import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
+import { shouldDedupeDispatch } from "@/lib/task-runtime-truth";
 
 // POST /api/tasks/dispatch - Send a task to an agent for processing
 export async function POST(request: NextRequest) {
@@ -64,6 +65,45 @@ export async function POST(request: NextRequest) {
     const client = getOpenClawClient();
     await client.connect();
 
+    const monitor = getAgentTaskMonitor();
+    const activeForTask = monitor
+      .getActiveMonitors()
+      .some((m) => m.taskId === taskId && m.agentId === agentId);
+
+    const dedupe = shouldDedupeDispatch({
+      task,
+      requestedAgentId: agentId,
+      sessionKey,
+      monitorActive: activeForTask,
+      nowIso: dispatchStartedAt,
+      ackTimeoutMs: monitor.getAckTimeoutMs(),
+    });
+
+    if (dedupe.dedupe) {
+      logActivity({
+        id: uuidv4(),
+        type: "task_dispatch_deduped",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `Dispatch deduped for \"${task.title}\" (${dedupe.reason})`,
+        metadata: {
+          reason: dedupe.reason,
+          existingDispatchId: task.dispatch_id,
+          sessionKey,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        deduped: true,
+        reason: dedupe.reason,
+        status: task.status,
+        dispatchId: task.dispatch_id,
+        sessionKey,
+        monitoring: activeForTask,
+      });
+    }
+
     let baselineAssistantCount = 0;
     try {
       const baselineHistory = (await client.getChatHistory(sessionKey)) as ChatMessage[];
@@ -72,24 +112,34 @@ export async function POST(request: NextRequest) {
       baselineAssistantCount = 0;
     }
 
-    // Update task to assigned → in_progress with fresh dispatch identity.
-    updateTask(taskId, {
-      status: "in_progress",
-      assigned_agent_id: agentId,
-      openclaw_session_key: sessionKey,
-      dispatch_id: dispatchId,
-      dispatch_started_at: dispatchStartedAt,
-      dispatch_message_count_start: baselineAssistantCount,
+    // Dispatch enters ASSIGNED. It becomes IN_PROGRESS only after first real runtime activity/ack.
+    transitionTaskStatus(taskId, "assigned", {
+      actor: "dispatch",
+      reason: isRework ? "dispatch_rework_sent" : "dispatch_sent",
+      agentId,
+      patch: {
+        assigned_agent_id: agentId,
+        openclaw_session_key: sessionKey,
+        dispatch_id: dispatchId,
+        dispatch_started_at: dispatchStartedAt,
+        dispatch_message_count_start: baselineAssistantCount,
+      },
+      metadata: {
+        sessionKey,
+        dispatchId,
+        dispatchStartedAt,
+        baselineAssistantCount,
+      },
     });
 
     logActivity({
       id: uuidv4(),
-      type: isRework ? "task_rework_started" : "task_in_progress",
+      type: isRework ? "task_rework_dispatched" : "task_dispatched",
       task_id: taskId,
       agent_id: agentId,
       message: isRework
-        ? `Agent "${agentId}" re-processing "${task.title}" with feedback`
-        : `Agent "${agentId}" started working on "${task.title}"`,
+        ? `Agent "${agentId}" received rework dispatch for "${task.title}" (awaiting first activity ack)`
+        : `Task "${task.title}" dispatched to "${agentId}" (awaiting first activity ack)`,
       metadata: { sessionKey, dispatchId, dispatchStartedAt, baselineAssistantCount },
     });
 
@@ -120,12 +170,11 @@ export async function POST(request: NextRequest) {
         agent_id: agentId,
         author_type: "system",
         content: isRework
-          ? `🔄 Rework request sent to agent ${agentId}. Monitoring for completion...`
-          : `🚀 Task dispatched to agent ${agentId}. Monitoring for completion...`,
+          ? `🔄 Rework request sent to agent ${agentId}. Waiting for first activity ack, then monitoring completion...`
+          : `🚀 Task dispatched to agent ${agentId}. Waiting for first activity ack, then monitoring completion...`,
       });
 
       // Register with the AgentTaskMonitor for event-driven completion
-      const monitor = getAgentTaskMonitor();
       await monitor.startMonitoring(taskId, sessionKey, agentId, {
         dispatchId,
         dispatchStartedAt,
@@ -151,7 +200,16 @@ export async function POST(request: NextRequest) {
       });
 
       // Revert to previous status on send failure
-      updateTask(taskId, { status: isRework ? "review" : "inbox" });
+      transitionTaskStatus(taskId, task.status as TaskStatus, {
+        actor: "dispatch",
+        reason: "dispatch_send_failed_revert",
+        agentId,
+        bypassGuards: true,
+        metadata: {
+          previousStatus: task.status,
+          error: String(sendError),
+        },
+      });
 
       return NextResponse.json(
         {

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
-import { listTasks, updateTask, addComment, logActivity, listComments } from "@/lib/db";
+import { listTasks, addComment, logActivity, listComments } from "@/lib/db";
 import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
+import { transitionTaskStatus } from "@/lib/task-state";
+import { reconcileTaskRuntimeTruth } from "@/lib/task-reconciler";
 
 /**
  * Extract text content from chat message content.
@@ -67,6 +69,9 @@ function isSubstantiveCompletion(text: string): boolean {
  * detect agent completion.
  */
 export async function GET() {
+  // Deterministic self-heal before completion checks.
+  await reconcileTaskRuntimeTruth();
+
   const inProgressTasks = listTasks({ status: "in_progress" });
   const tasksToCheck = inProgressTasks.filter(
     (t) => t.assigned_agent_id && t.openclaw_session_key
@@ -141,7 +146,15 @@ export async function GET() {
             continue;
           }
 
-          updateTask(task.id, { status: "review" });
+          transitionTaskStatus(task.id, "review", {
+            actor: "monitor",
+            reason: "completion_gate_accepted",
+            agentId: task.assigned_agent_id ?? undefined,
+            metadata: {
+              dispatchId: decision.dispatchId,
+              payloadDispatchId: decision.payloadDispatchId,
+            },
+          });
 
           const createdAt = new Date(task.updated_at).getTime();
           const duration = Math.round((Date.now() - createdAt) / 1000);

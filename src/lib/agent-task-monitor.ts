@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "./openclaw-client";
-import { getTask, updateTask, addComment, logActivity } from "./db";
+import { getTask, addComment, logActivity } from "./db";
 import { evaluateCompletion, extractDispatchCompletion } from "./completion-gate";
+import { transitionTaskStatus } from "./task-state";
 
 // --- Types ---
 
@@ -12,11 +13,14 @@ interface ActiveMonitor {
   startedAt: number;
   pollTimer: ReturnType<typeof setInterval>;
   timeoutTimer?: ReturnType<typeof setTimeout>;
+  ackTimeoutTimer?: ReturnType<typeof setTimeout>;
+  unsubscribeEvents?: () => void;
   lastMessageCount: number;
   lastActivityAt: number;
   dispatchId?: string;
   dispatchStartedAt?: string;
   baselineAssistantCount?: number;
+  firstActivityAcked: boolean;
 }
 
 // --- Singleton ---
@@ -29,6 +33,12 @@ class AgentTaskMonitor {
   private monitors: Map<string, ActiveMonitor> = new Map(); // sessionKey → monitor
   private readonly POLL_INTERVAL_MS = 10_000; // Check every 10 seconds
   private readonly IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minute idle timeout
+  private readonly FIRST_ACTIVITY_ACK_TIMEOUT_MS = this.resolveAckTimeoutMs();
+
+  private resolveAckTimeoutMs(): number {
+    const parsed = Number(process.env.MC_FIRST_ACTIVITY_ACK_TIMEOUT_MS ?? "90000");
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 90_000;
+  }
 
   /**
    * Start monitoring a dispatched task for agent completion.
@@ -71,17 +81,23 @@ class AgentTaskMonitor {
       startedAt: Date.now(),
       pollTimer,
       timeoutTimer: undefined,
+      ackTimeoutTimer: undefined,
+      unsubscribeEvents: undefined,
       lastMessageCount: initialCount,
       lastActivityAt: Date.now(),
       dispatchId: opts?.dispatchId,
       dispatchStartedAt: opts?.dispatchStartedAt,
       baselineAssistantCount: initialCount,
+      firstActivityAcked: false,
     };
 
     this.monitors.set(sessionKey, monitor);
     this.resetIdleTimeout(monitor);
+    this.startAckTimeout(monitor);
+    this.subscribeToLifecycleEvents(monitor);
+
     console.log(
-      `[AgentTaskMonitor] Monitoring started: task=${taskId}, session=${sessionKey}, agent=${agentId}, initialMsgs=${initialCount}`
+      `[AgentTaskMonitor] Monitoring started: task=${taskId}, session=${sessionKey}, agent=${agentId}, initialMsgs=${initialCount}, ackTimeoutMs=${this.FIRST_ACTIVITY_ACK_TIMEOUT_MS}`
     );
   }
 
@@ -93,6 +109,8 @@ class AgentTaskMonitor {
     if (monitor) {
       clearInterval(monitor.pollTimer);
       clearTimeout(monitor.timeoutTimer);
+      clearTimeout(monitor.ackTimeoutTimer);
+      monitor.unsubscribeEvents?.();
       this.monitors.delete(sessionKey);
       console.log(
         `[AgentTaskMonitor] Monitoring stopped: session=${sessionKey}`
@@ -108,18 +126,153 @@ class AgentTaskMonitor {
     sessionKey: string;
     agentId: string;
     startedAt: number;
+    firstActivityAcked: boolean;
+    dispatchId?: string;
   }[] {
     return Array.from(this.monitors.values()).map(
-      ({ taskId, sessionKey, agentId, startedAt }) => ({
+      ({ taskId, sessionKey, agentId, startedAt, firstActivityAcked, dispatchId }) => ({
         taskId,
         sessionKey,
         agentId,
         startedAt,
+        firstActivityAcked,
+        dispatchId,
       })
     );
   }
 
+  getAckTimeoutMs(): number {
+    return this.FIRST_ACTIVITY_ACK_TIMEOUT_MS;
+  }
+
   // --- Private ---
+
+  private subscribeToLifecycleEvents(monitor: ActiveMonitor): void {
+    const client = getOpenClawClient();
+    monitor.unsubscribeEvents = client.onEvent("*", (evt) => {
+      this.maybeAcknowledgeFromEvent(monitor.sessionKey, evt);
+    });
+  }
+
+  private maybeAcknowledgeFromEvent(sessionKey: string, evt: unknown): void {
+    const monitor = this.monitors.get(sessionKey);
+    if (!monitor || monitor.firstActivityAcked) return;
+
+    const frame = evt as {
+      event?: string;
+      payload?: {
+        sessionKey?: string;
+        session?: string;
+        key?: string;
+        role?: string;
+        status?: string;
+        phase?: string;
+        stage?: string;
+        message?: { role?: string };
+      };
+    };
+
+    const eventName = String(frame?.event ?? "").toLowerCase();
+    const payload = frame?.payload ?? {};
+    const payloadSession = payload.sessionKey ?? payload.session ?? payload.key;
+
+    if (payloadSession && payloadSession !== monitor.sessionKey) return;
+
+    const role = String(payload.role ?? payload.message?.role ?? "").toLowerCase();
+    const phaseText = `${String(payload.status ?? "")} ${String(payload.phase ?? "")} ${String(payload.stage ?? "")}`.toLowerCase();
+
+    const assistantSignal = role === "assistant";
+    const lifecycleSignal =
+      eventName.includes("lifecycle") ||
+      eventName.includes("run.start") ||
+      eventName.includes("run.progress") ||
+      eventName.includes("chat.run.start") ||
+      eventName.includes("chat.run.progress") ||
+      /(start|started|progress|running)/.test(phaseText);
+
+    if (assistantSignal || lifecycleSignal) {
+      this.markFirstActivityAck(monitor, `event:${eventName || "unknown"}`);
+    }
+  }
+
+  private startAckTimeout(monitor: ActiveMonitor): void {
+    monitor.ackTimeoutTimer = setTimeout(async () => {
+      await this.handleAckTimeout(monitor.sessionKey);
+    }, this.FIRST_ACTIVITY_ACK_TIMEOUT_MS);
+  }
+
+  private markFirstActivityAck(monitor: ActiveMonitor, source: string): void {
+    if (monitor.firstActivityAcked) return;
+    monitor.firstActivityAcked = true;
+    clearTimeout(monitor.ackTimeoutTimer);
+    monitor.ackTimeoutTimer = undefined;
+
+    transitionTaskStatus(monitor.taskId, "in_progress", {
+      actor: "monitor",
+      reason: "first_agent_activity_ack",
+      agentId: monitor.agentId,
+      metadata: {
+        source,
+        sessionKey: monitor.sessionKey,
+        dispatchId: monitor.dispatchId,
+      },
+    });
+
+    console.log(
+      `[AgentTaskMonitor] First activity acked for task ${monitor.taskId} via ${source}`
+    );
+  }
+
+  private async handleAckTimeout(sessionKey: string): Promise<void> {
+    const monitor = this.monitors.get(sessionKey);
+    if (!monitor || monitor.firstActivityAcked) return;
+
+    const task = getTask(monitor.taskId);
+    if (!task || (task.status !== "in_progress" && task.status !== "assigned")) {
+      this.stopMonitoring(sessionKey);
+      return;
+    }
+
+    transitionTaskStatus(monitor.taskId, "assigned", {
+      actor: "monitor",
+      reason: "ack_timeout_no_activity",
+      agentId: monitor.agentId,
+      patch: {
+        assigned_agent_id: monitor.agentId,
+      },
+      metadata: {
+        sessionKey: monitor.sessionKey,
+        dispatchId: task.dispatch_id,
+        ackTimeoutMs: this.FIRST_ACTIVITY_ACK_TIMEOUT_MS,
+      },
+    });
+
+    addComment({
+      id: uuidv4(),
+      task_id: monitor.taskId,
+      author_type: "system",
+      content: "No agent activity detected within ack window; reverted to Assigned.",
+    });
+
+    logActivity({
+      id: uuidv4(),
+      type: "task_ack_timeout",
+      task_id: monitor.taskId,
+      agent_id: monitor.agentId,
+      message: `No agent activity detected for "${task.title}" within ack window; reverted to assigned`,
+      metadata: {
+        sessionKey: monitor.sessionKey,
+        dispatchId: task.dispatch_id,
+        ackTimeoutMs: this.FIRST_ACTIVITY_ACK_TIMEOUT_MS,
+      },
+    });
+
+    this.stopMonitoring(sessionKey);
+
+    console.log(
+      `[AgentTaskMonitor] Ack timeout for task ${monitor.taskId}; reverted to ASSIGNED`
+    );
+  }
 
   private resetIdleTimeout(monitor: ActiveMonitor): void {
     if (monitor.timeoutTimer) clearTimeout(monitor.timeoutTimer);
@@ -132,6 +285,17 @@ class AgentTaskMonitor {
     }, this.IDLE_TIMEOUT_MS);
   }
 
+  private isFreshForDispatch(
+    monitor: ActiveMonitor,
+    timestamp: string | undefined
+  ): boolean {
+    if (!monitor.dispatchStartedAt || !timestamp) return true;
+    const dispatchMs = Date.parse(monitor.dispatchStartedAt);
+    const tsMs = Date.parse(timestamp);
+    if (!Number.isFinite(dispatchMs) || !Number.isFinite(tsMs)) return true;
+    return tsMs >= dispatchMs;
+  }
+
   /**
    * Poll chat history to detect agent completion.
    * Checks if new assistant messages have appeared since we started monitoring.
@@ -142,7 +306,7 @@ class AgentTaskMonitor {
 
     try {
       const task = getTask(monitor.taskId);
-      if (!task || task.status !== "in_progress") {
+      if (!task || (task.status !== "assigned" && task.status !== "in_progress")) {
         // Task was moved manually or doesn't exist anymore
         this.stopMonitoring(sessionKey);
         return;
@@ -158,6 +322,11 @@ class AgentTaskMonitor {
         const latestResponse = assistantMsgs[assistantMsgs.length - 1];
         monitor.lastActivityAt = Date.now();
         this.resetIdleTimeout(monitor);
+
+        if (this.isFreshForDispatch(monitor, latestResponse.timestamp)) {
+          this.markFirstActivityAck(monitor, "assistant_message");
+        }
+
         console.log(
           `[AgentTaskMonitor] New agent response detected for task ${monitor.taskId} (${assistantMsgs.length} msgs, was ${monitor.lastMessageCount})`
         );
@@ -190,9 +359,9 @@ class AgentTaskMonitor {
   ): Promise<void> {
     const { taskId, agentId, sessionKey } = monitor;
 
-    // Verify task still exists and is in_progress
+    // Verify task still exists and is active
     const task = getTask(taskId);
-    if (!task || task.status !== "in_progress") {
+    if (!task || (task.status !== "assigned" && task.status !== "in_progress")) {
       console.log(
         `[AgentTaskMonitor] Task ${taskId} not in expected state (current: ${task?.status}). Skipping.`
       );
@@ -239,7 +408,15 @@ class AgentTaskMonitor {
     }
 
     // Manager-owned transition to review after completion gate acceptance.
-    updateTask(taskId, { status: "review" });
+    transitionTaskStatus(taskId, "review", {
+      actor: "monitor",
+      reason: "completion_gate_accepted",
+      agentId,
+      metadata: {
+        sessionKey,
+        dispatchId: task.dispatch_id,
+      },
+    });
 
     const duration = Math.round((Date.now() - monitor.startedAt) / 1000);
     logActivity({
