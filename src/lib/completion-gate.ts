@@ -18,8 +18,9 @@ export interface CompletionDecision {
 
 const INSTANT_WINDOW_MS = 5_000;
 
-export function extractDispatchCompletion(text: string): { dispatchId: string | null } {
-  const m = text.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?:/i);
+export function extractDispatchCompletion(text: unknown): { dispatchId: string | null } {
+  const s = typeof text === "string" ? text : JSON.stringify(text ?? "");
+  const m = s.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?:/i);
   return { dispatchId: m?.[1] ?? null };
 }
 

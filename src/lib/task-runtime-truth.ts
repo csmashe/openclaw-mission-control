@@ -27,7 +27,8 @@ export function deriveExpectedActiveStatus(
   task: Task,
   evidence: TaskRuntimeEvidence
 ): ActiveTaskStatus {
-  if (evidence.monitorAcked) return "in_progress";
+  // monitorAcked alone is not sufficient — stray gateway events can set it.
+  // Always require actual message evidence before promoting to in_progress.
   if (countIsFresh(task, evidence)) return "in_progress";
   return "assigned";
 }

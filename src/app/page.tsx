@@ -423,7 +423,17 @@ export default function Dashboard() {
     e.preventDefault();
     setDragOverColumn(null);
     if (draggedTask && draggedTask.status !== columnId) {
-      moveTask(draggedTask.id, columnId);
+      if (columnId === "assigned") {
+        // Route through dispatch flow so the agent actually gets the message
+        if (draggedTask.assigned_agent_id) {
+          dispatchTask(draggedTask.id, draggedTask.assigned_agent_id);
+        } else {
+          // No agent assigned — open dispatch modal to pick one
+          setShowDispatchModal(draggedTask);
+        }
+      } else {
+        moveTask(draggedTask.id, columnId);
+      }
     }
     setDraggedTask(null);
   };
@@ -780,8 +790,8 @@ function KanbanBoard({
   onCreateTask?: () => void;
 }) {
   return (
-    <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
-      <div className="flex h-full gap-4">
+    <div className="flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden p-6">
+      <div className="flex h-full min-h-0 gap-4">
         {columns.map((col) => {
           const colTasks = getColumnTasks(col.id);
           const isActive = col.id === "in_progress";
@@ -790,14 +800,14 @@ function KanbanBoard({
           return (
             <div
               key={col.id}
-              className={`flex-1 flex flex-col min-w-0 rounded-lg border backdrop-blur-sm ${
+              className={`flex-1 flex min-h-0 flex-col min-w-0 overflow-hidden rounded-lg border backdrop-blur-sm ${
                 isActive
                   ? "border-t-2 border-t-primary border-x-border border-b-border column-glow"
                   : "border-border"
               } ${isDragOver ? "ring-2 ring-primary/30" : ""} bg-muted/30`}
             >
               {/* Column Header */}
-              <div className="p-3 border-b border-border/50 flex justify-between items-center relative z-10">
+              <div className="shrink-0 p-3 border-b border-border/50 flex justify-between items-center relative z-10">
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${getColumnDotColor(col.id)}`} />
                   <h3 className={`font-bold text-sm tracking-wide ${isActive ? "text-primary" : ""}`}>
@@ -826,9 +836,9 @@ function KanbanBoard({
               </div>
 
               {/* Column Body */}
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 min-h-0">
                 <div
-                  className="p-3 flex flex-col gap-3 min-h-[120px] relative z-10"
+                  className="p-3 flex flex-col gap-3 min-h-full min-w-0 overflow-x-hidden relative z-10"
                   onDragOver={(e) => onDragOver(e, col.id)}
                   onDragLeave={onDragLeave}
                   onDrop={(e) => onDrop(e, col.id)}
@@ -889,7 +899,7 @@ function TaskCard({
 
   return (
     <div
-      className={`group bg-card p-4 rounded border shadow-sm hover:shadow-[0_0_15px_oklch(0.58_0.2_260/0.1)] transition-all cursor-pointer relative overflow-hidden ${
+      className={`group min-w-0 bg-card p-4 rounded border shadow-sm hover:shadow-[0_0_15px_oklch(0.58_0.2_260/0.1)] transition-all cursor-pointer relative overflow-hidden ${
         isAgentWorking
           ? "border-primary/50 animate-[pulse_3s_ease-in-out_infinite]"
           : isReview
@@ -918,7 +928,7 @@ function TaskCard({
       </div>
 
       {/* Title */}
-      <h4 className={`text-sm font-medium mb-3 leading-snug ${
+      <h4 className={`min-w-0 break-words text-sm font-medium mb-3 leading-snug ${
         isInProgress && task.assigned_agent_id ? "pl-2" : ""
       } ${isDone ? "line-through text-muted-foreground" : ""}`}>
         {task.title}
@@ -946,7 +956,7 @@ function TaskCard({
                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_lime]" />
                 </div>
               </div>
-              <span className="text-[10px] text-primary font-mono">{task.assigned_agent_id}</span>
+              <span className="max-w-28 truncate text-[10px] text-primary font-mono" title={task.assigned_agent_id}>{task.assigned_agent_id}</span>
             </div>
           ) : isDone ? (
             <div className="w-6 h-6 rounded-full bg-green-900/30 border border-green-800 flex items-center justify-center text-[10px] text-green-500">

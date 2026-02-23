@@ -176,7 +176,7 @@ class AgentTaskMonitor {
     const payload = frame?.payload ?? {};
     const payloadSession = payload.sessionKey ?? payload.session ?? payload.key;
 
-    if (payloadSession && payloadSession !== monitor.sessionKey) return;
+    if (!payloadSession || payloadSession !== monitor.sessionKey) return;
 
     const role = String(payload.role ?? payload.message?.role ?? "").toLowerCase();
     const phaseText = `${String(payload.status ?? "")} ${String(payload.phase ?? "")} ${String(payload.stage ?? "")}`.toLowerCase();
