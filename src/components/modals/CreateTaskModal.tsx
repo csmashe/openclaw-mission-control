@@ -23,13 +23,14 @@ import type { Agent } from "@/lib/types";
 export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (data: { title: string; description: string; priority: string; assigned_agent_id?: string }) => void;
+  onCreate: (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean }) => void;
   agents: Agent[];
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
   const [agentId, setAgentId] = useState("none");
+  const [startPlanning, setStartPlanning] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,11 +40,13 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
       description: description.trim(),
       priority,
       ...(agentId !== "none" ? { assigned_agent_id: agentId } : {}),
+      ...(startPlanning ? { startPlanning: true } : {}),
     });
     setTitle("");
     setDescription("");
     setPriority("medium");
     setAgentId("none");
+    setStartPlanning(false);
   };
 
   return (
@@ -111,6 +114,18 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="startPlanning"
+                checked={startPlanning}
+                onChange={(e) => setStartPlanning(e.target.checked)}
+                className="rounded border-input"
+              />
+              <label htmlFor="startPlanning" className="text-sm text-muted-foreground cursor-pointer">
+                Start with planning phase (AI will ask clarifying questions before dispatch)
+              </label>
             </div>
           </div>
           <DialogFooter>

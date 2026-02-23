@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { getPriorityStyle, timeAgo } from "@/lib/helpers";
 import type { Task, TaskComment } from "@/lib/types";
 import { DeliverablesList } from "@/components/DeliverablesList";
+import { PlanningTab } from "@/components/board/PlanningTab";
 
 export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
@@ -28,7 +29,9 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   const [sendingComment, setSendingComment] = useState(false);
   const [reworkFeedback, setReworkFeedback] = useState("");
   const [showRework, setShowRework] = useState(false);
-  const [activeTab, setActiveTab] = useState<"activity" | "deliverables">("activity");
+  const [activeTab, setActiveTab] = useState<"activity" | "deliverables" | "planning">(
+    task.status === "planning" ? "planning" : "activity"
+  );
   const [reworking, setReworking] = useState(false);
   const [prevStatus, setPrevStatus] = useState(task.status);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -158,6 +161,18 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
         {/* Tabs */}
         <div className="flex gap-2 border-b border-border">
+          {task.status === "planning" && (
+            <button
+              onClick={() => setActiveTab("planning")}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "planning"
+                  ? "border-violet-500 text-violet-500"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Planning
+            </button>
+          )}
           <button
             onClick={() => setActiveTab("activity")}
             className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
@@ -182,7 +197,11 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
 
         {/* Tab Content */}
         <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
-          {activeTab === "deliverables" ? (
+          {activeTab === "planning" ? (
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              <PlanningTab taskId={task.id} onSpecLocked={onRefresh} />
+            </div>
+          ) : activeTab === "deliverables" ? (
             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
               <DeliverablesList taskId={task.id} />
             </div>

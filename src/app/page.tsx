@@ -158,7 +158,7 @@ export default function Dashboard() {
 
   // --- Task Actions ---
 
-  const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string }) => {
+  const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean }) => {
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,7 +166,10 @@ export default function Dashboard() {
     });
     const result = await res.json();
 
-    if (data.assigned_agent_id && result.task?.id) {
+    if (data.startPlanning && result.task?.id) {
+      // Start planning phase instead of direct dispatch
+      await fetch(`/api/tasks/${result.task.id}/planning`, { method: "POST" });
+    } else if (data.assigned_agent_id && result.task?.id) {
       const pref = getStoredModelPreference();
       await fetch("/api/tasks/dispatch", {
         method: "POST",

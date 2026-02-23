@@ -25,6 +25,7 @@ export function formatTime(dateStr: string): string {
 export function getColumnDotColor(id: ColumnId): string {
   switch (id) {
     case "inbox": return "bg-slate-400";
+    case "planning": return "bg-violet-500";
     case "assigned": return "bg-primary/50";
     case "in_progress": return "bg-primary shadow-[0_0_8px_oklch(0.58_0.2_260)]";
     case "review": return "bg-purple-500";
