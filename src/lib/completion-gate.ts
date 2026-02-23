@@ -16,7 +16,7 @@ export interface CompletionDecision {
   evidenceTimestamp: string | null;
 }
 
-const INSTANT_WINDOW_MS = 15_000;
+const INSTANT_WINDOW_MS = 5_000;
 
 export function extractDispatchCompletion(text: string): { dispatchId: string | null } {
   const m = text.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?:/i);

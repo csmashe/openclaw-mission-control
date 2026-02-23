@@ -32,7 +32,7 @@ const globalForMonitor = globalThis as typeof globalThis & {
 class AgentTaskMonitor {
   private monitors: Map<string, ActiveMonitor> = new Map(); // sessionKey → monitor
   private readonly POLL_INTERVAL_MS = 10_000; // Check every 10 seconds
-  private readonly IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minute idle timeout
+  private readonly IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minute idle timeout
   private readonly FIRST_ACTIVITY_ACK_TIMEOUT_MS = this.resolveAckTimeoutMs();
 
   private resolveAckTimeoutMs(): number {

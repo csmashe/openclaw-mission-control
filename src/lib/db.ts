@@ -374,6 +374,14 @@ export function logActivity(data: {
     );
 }
 
+// --- Transaction helper ---
+
+export function transaction<T>(fn: () => T): T {
+  return getDb().transaction(fn)();
+}
+
+// --- Activity queries ---
+
 export function listActivity(opts?: {
   limit?: number;
   type?: string;

@@ -7,6 +7,8 @@ import {
   addComment,
   logActivity,
   listComments,
+  updateTask,
+  transaction,
 } from "@/lib/db";
 import type { ChatMessage } from "@/lib/openclaw-client";
 import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
@@ -104,6 +106,51 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Atomically claim the dispatch slot before any async gateway work.
+    // This prevents two concurrent dispatch requests from both passing the dedup check.
+    const claim = transaction(() => {
+      const freshTask = getTask(taskId);
+      if (!freshTask) return { ok: false as const, reason: "not_found" as const };
+
+      // Re-check: another request may have claimed the slot since the dedup check above
+      if (
+        freshTask.dispatch_id &&
+        freshTask.assigned_agent_id === agentId &&
+        (freshTask.status === "assigned" || freshTask.status === "in_progress")
+      ) {
+        return {
+          ok: false as const,
+          reason: "already_claimed" as const,
+          existingDispatchId: freshTask.dispatch_id,
+        };
+      }
+
+      // Claim the slot atomically
+      updateTask(taskId, {
+        dispatch_id: dispatchId,
+        dispatch_started_at: dispatchStartedAt,
+        assigned_agent_id: agentId,
+        openclaw_session_key: sessionKey,
+      });
+
+      return { ok: true as const };
+    });
+
+    if (!claim.ok) {
+      if (claim.reason === "not_found") {
+        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      }
+      return NextResponse.json(
+        {
+          ok: true,
+          deduped: true,
+          reason: "concurrent_dispatch_race",
+          dispatchId: claim.existingDispatchId,
+          sessionKey,
+        }
+      );
+    }
+
     let baselineAssistantCount = 0;
     try {
       const baselineHistory = (await client.getChatHistory(sessionKey)) as ChatMessage[];
@@ -118,10 +165,6 @@ export async function POST(request: NextRequest) {
       reason: isRework ? "dispatch_rework_sent" : "dispatch_sent",
       agentId,
       patch: {
-        assigned_agent_id: agentId,
-        openclaw_session_key: sessionKey,
-        dispatch_id: dispatchId,
-        dispatch_started_at: dispatchStartedAt,
         dispatch_message_count_start: baselineAssistantCount,
       },
       metadata: {
@@ -199,14 +242,21 @@ export async function POST(request: NextRequest) {
         content: `❌ Failed to send to agent: ${String(sendError)}`,
       });
 
-      // Revert to previous status on send failure
+      // Revert to previous status and clear all claim metadata on send failure.
+      // Leaving stale dispatch_id/dispatch_started_at causes false dedup decisions.
       transitionTaskStatus(taskId, task.status as TaskStatus, {
         actor: "dispatch",
         reason: "dispatch_send_failed_revert",
         agentId,
         bypassGuards: true,
+        patch: {
+          dispatch_id: null,
+          dispatch_started_at: null,
+          dispatch_message_count_start: 0,
+        },
         metadata: {
           previousStatus: task.status,
+          clearedDispatchId: dispatchId,
           error: String(sendError),
         },
       });
