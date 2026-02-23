@@ -58,5 +58,5 @@ export interface DevicePairStatus {
 
 export type ColumnId = "inbox" | "planning" | "assigned" | "in_progress" | "testing" | "review" | "done";
 
-export const VALID_VIEWS = ["board", "agents", "missions", "tools", "usage", "approvals", "cron", "logs", "settings", "chat"] as const;
+export const VALID_VIEWS = ["board", "who-working", "agents", "missions", "tools", "usage", "approvals", "cron", "logs", "settings", "chat"] as const;
 export type ViewId = (typeof VALID_VIEWS)[number];

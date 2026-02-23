@@ -14,6 +14,7 @@ import { CronScheduler } from "@/components/views/cron-scheduler";
 import { LogsViewer } from "@/components/views/logs-viewer";
 import { SettingsPanel, getStoredModelPreference } from "@/components/views/settings-panel";
 import { ChatPanel } from "@/components/views/chat-panel";
+import { WhoWorkingPanel } from "@/components/views/who-working-panel";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { LiveTerminal } from "@/components/layout/LiveTerminal";
@@ -314,6 +315,7 @@ export default function Dashboard() {
               onCreateTask={() => setShowCreateModal(true)}
             />
           )}
+          {activeView === "who-working" && <WhoWorkingPanel />}
           {activeView === "agents" && (
             <AgentsView
               status={gatewayStatus}

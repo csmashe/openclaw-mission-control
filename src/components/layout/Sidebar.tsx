@@ -12,6 +12,7 @@ import {
   Clock,
   FileText,
   MessageSquare,
+  Users,
 } from "lucide-react";
 import {
   Tooltip,
@@ -22,6 +23,7 @@ import type { ViewId } from "@/lib/types";
 
 const NAV_ITEMS = [
   { id: "board" as const, icon: LayoutDashboard, label: "Dashboard" },
+  { id: "who-working" as const, icon: Users, label: "Who's Working" },
   { id: "chat" as const, icon: MessageSquare, label: "Chat" },
   { id: "agents" as const, icon: Bot, label: "Agents" },
   { id: "missions" as const, icon: Rocket, label: "Missions" },

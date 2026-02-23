@@ -301,8 +301,8 @@ ${task.description || "No additional details provided."}
 ---
 
 **Environment constraints:**
-- Use Claude CLI only for implementation work in this environment.
-- Do not assume Codex CLI is installed.
+- Do implementation directly in-repo with local tools.
+- Do NOT use Claude CLI, Codex CLI, or other external coding CLIs unless explicitly requested by Chris.
 
 **Dispatch ID:** ${dispatchId}
 
@@ -358,8 +358,8 @@ ${feedback}
 ---
 
 **Environment constraints:**
-- Use Claude CLI only for implementation work in this environment.
-- Do not assume Codex CLI is installed.
+- Do implementation directly in-repo with local tools.
+- Do NOT use Claude CLI, Codex CLI, or other external coding CLIs unless explicitly requested by Chris.
 
 **Dispatch ID:** ${dispatchId}
 
