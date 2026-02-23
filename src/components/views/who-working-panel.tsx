@@ -5,7 +5,7 @@ import { Activity, AlertTriangle, CheckCircle2, Loader2, RefreshCw, Users } from
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-type StallState = "healthy" | "idle_warning" | "stalled" | "completed" | "unknown";
+type StallState = "healthy" | "idle_warning" | "stalled" | "error" | "completed" | "archived" | "unknown";
 
 interface Worker {
   agent: string;
@@ -38,7 +38,9 @@ const STALL_BADGE: Record<StallState, string> = {
   healthy: "bg-green-500/10 text-green-400 border-green-500/30",
   idle_warning: "bg-amber-500/10 text-amber-300 border-amber-500/30",
   stalled: "bg-red-500/10 text-red-400 border-red-500/30",
+  error: "bg-rose-500/10 text-rose-300 border-rose-500/30",
   completed: "bg-primary/10 text-primary border-primary/30",
+  archived: "bg-muted/60 text-muted-foreground border-border",
   unknown: "bg-muted text-muted-foreground border-border",
 };
 
@@ -68,7 +70,7 @@ function formatLastActivity(ts: string | null): string {
 function workerSortBucket(status: string): number {
   const normalized = status.toLowerCase();
   if (normalized === "running") return 0;
-  if (normalized === "completed" || normalized === "done") return 2;
+  if (normalized === "completed" || normalized === "done" || normalized === "archived") return 2;
   return 1;
 }
 
@@ -116,8 +118,8 @@ export function WhoWorkingPanel() {
   const summary = useMemo(() => {
     const running = workers.filter((w) => w.status === "running").length;
     const stalled = workers.filter((w) => w.stallState === "stalled").length;
-    const completed = workers.filter((w) => w.status === "completed").length;
-    return { total: workers.length, running, stalled, completed };
+    const history = workers.filter((w) => w.status !== "running").length;
+    return { total: workers.length, running, stalled, history };
   }, [workers]);
 
   return (
@@ -154,8 +156,8 @@ export function WhoWorkingPanel() {
           <p className="text-xl font-semibold mt-1 text-red-400">{summary.stalled}</p>
         </div>
         <div className="rounded-lg border border-border bg-card/30 p-3">
-          <p className="text-xs text-muted-foreground">Completed</p>
-          <p className="text-xl font-semibold mt-1 text-primary">{summary.completed}</p>
+          <p className="text-xs text-muted-foreground">History</p>
+          <p className="text-xl font-semibold mt-1 text-primary">{summary.history}</p>
         </div>
       </div>
 
