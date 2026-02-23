@@ -3,7 +3,7 @@
 import { Plus, CheckCircle2, MoreHorizontal } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getColumnDotColor } from "@/lib/helpers";
-import type { Task, ColumnId } from "@/lib/types";
+import type { Task } from "@/lib/types";
 import { COLUMNS } from "./ColumnConstants";
 import { TaskCard } from "./TaskCard";
 
@@ -33,8 +33,8 @@ export function KanbanBoard({
   onCreateTask?: () => void;
 }) {
   return (
-    <div className="flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden p-6">
-      <div className="flex h-full min-h-0 gap-4">
+    <div className="flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain p-6">
+      <div className="flex h-full min-h-0 min-w-full w-max gap-4">
         {COLUMNS.map((col) => {
           const colTasks = getColumnTasks(col.id);
           const isActive = col.id === "in_progress";
@@ -43,7 +43,7 @@ export function KanbanBoard({
           return (
             <div
               key={col.id}
-              className={`flex-1 flex min-h-0 flex-col min-w-0 overflow-hidden rounded-lg border backdrop-blur-sm ${
+              className={`flex-1 basis-[20rem] min-w-[18rem] max-w-[24rem] flex min-h-0 flex-col overflow-hidden rounded-lg border backdrop-blur-sm ${
                 isActive
                   ? "border-t-2 border-t-primary border-x-border border-b-border column-glow"
                   : "border-border"

@@ -199,6 +199,12 @@ export default function Dashboard() {
   };
 
   const deleteTask = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    const confirmed = window.confirm(
+      `Delete task "${task?.title || taskId}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
     await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
     await fetchTasks();
     await fetchActivity();

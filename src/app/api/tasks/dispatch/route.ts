@@ -15,6 +15,30 @@ import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
 import { shouldDedupeDispatch } from "@/lib/task-runtime-truth";
 import { broadcast } from "@/lib/events";
 
+function getSessionOwnerAgent(sessionKey: string | null | undefined): string | null {
+  if (!sessionKey) return null;
+  const match = sessionKey.match(/^agent:([^:]+):/i);
+  return match?.[1] ?? null;
+}
+
+function resolveDispatchSessionKey(task: {
+  id: string;
+  openclaw_session_key: string | null;
+  planning_session_key?: string | null;
+}, agentId: string): string {
+  const existing = task.openclaw_session_key;
+  const planningKey = task.planning_session_key ?? null;
+
+  if (existing && existing !== planningKey) {
+    const ownerAgent = getSessionOwnerAgent(existing);
+    if (ownerAgent && ownerAgent === agentId) {
+      return existing;
+    }
+  }
+
+  return `agent:${agentId}:mission-control:${agentId}:task-${task.id.slice(0, 8)}`;
+}
+
 // POST /api/tasks/dispatch - Send a task to an agent for processing
 export async function POST(request: NextRequest) {
   try {
@@ -36,11 +60,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate or reuse session key
-    // Gateway canonicalizes keys as agent:<agentId>:<sessionKey>
-    const sessionKey =
-      task.openclaw_session_key ||
-      `agent:${agentId}:mission-control:${agentId}:task-${taskId.slice(0, 8)}`;
+    // Generate or reuse a dispatch session key bound to the assigned agent context.
+    // Planning keys must never be reused for runtime dispatch.
+    const sessionKey = resolveDispatchSessionKey(
+      task as typeof task & { planning_session_key?: string | null },
+      agentId
+    );
 
     // If this is a rework re-dispatch, add the user's feedback as a comment first
     const isRework = !!feedback;

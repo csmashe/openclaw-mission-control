@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v4 as uuidv4 } from "uuid";
 import { getTask, updateTask } from "@/lib/db";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 import { transitionTaskStatus } from "@/lib/task-state";
@@ -121,7 +120,6 @@ Start with your first question.`;
     ];
 
     updateTask(taskId, {
-      openclaw_session_key: sessionKey,
       ...({ planning_session_key: sessionKey, planning_messages: JSON.stringify(messages) } as Record<string, unknown>),
     } as Parameters<typeof updateTask>[1]);
 

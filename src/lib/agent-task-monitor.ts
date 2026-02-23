@@ -3,6 +3,7 @@ import { getOpenClawClient } from "./openclaw-client";
 import { getTask, addComment, logActivity, listDeliverables } from "./db";
 import { evaluateCompletion, extractDispatchCompletion } from "./completion-gate";
 import { transitionTaskStatus } from "./task-state";
+import { resolveInternalApiUrl } from "./internal-api";
 
 // --- Types ---
 
@@ -447,8 +448,7 @@ class AgentTaskMonitor {
 
       // Trigger test endpoint
       try {
-        const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
-        fetch(`${baseUrl}/api/tasks/${taskId}/test`, { method: "POST" }).catch((err) =>
+        fetch(resolveInternalApiUrl(`/api/tasks/${taskId}/test`), { method: "POST" }).catch((err) =>
           console.error(`[AgentTaskMonitor] Test trigger failed for ${taskId}:`, err)
         );
       } catch (err) {

@@ -5,6 +5,7 @@ import { listTasks, addComment, logActivity, listComments, listDeliverables } fr
 import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { reconcileTaskRuntimeTruth } from "@/lib/task-reconciler";
+import { resolveInternalApiUrl } from "@/lib/internal-api";
 
 /**
  * Extract text content from chat message content.
@@ -124,8 +125,14 @@ export async function GET() {
           });
 
           if (!decision.accepted) {
-            // Optional secondary filter for non-marker chatter: skip noisy logs.
-            if (!isSubstantiveCompletion(responseText) && !extracted.dispatchId) {
+            const maybeCompletionSignal =
+              isSubstantiveCompletion(responseText) || !!extracted.dispatchId;
+            if (!maybeCompletionSignal) {
+              continue;
+            }
+
+            // Avoid repeated spam logs for the same unchanged assistant output.
+            if (sameAgentCommentExists) {
               continue;
             }
 
@@ -142,6 +149,13 @@ export async function GET() {
                 completionReason: decision.completionReason,
                 accepted: false,
               },
+            });
+
+            addComment({
+              id: uuidv4(),
+              task_id: task.id,
+              author_type: "system",
+              content: `⚠️ Completion signal rejected (${decision.completionReason}). Task remains ${task.status}. Please re-dispatch or send a valid TASK_COMPLETE marker for the active dispatch.`,
             });
             continue;
           }
@@ -192,8 +206,7 @@ export async function GET() {
 
             // Trigger test endpoint (fire-and-forget)
             try {
-              const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
-              fetch(`${baseUrl}/api/tasks/${task.id}/test`, { method: "POST" }).catch(() => {});
+              fetch(resolveInternalApiUrl(`/api/tasks/${task.id}/test`), { method: "POST" }).catch(() => {});
             } catch { /* ignore */ }
 
             console.log(

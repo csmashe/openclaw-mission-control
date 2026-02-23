@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/db";
+import { resolveInternalApiUrl } from "@/lib/internal-api";
 
 // POST - Approve spec and trigger dispatch
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: taskId } = await params;
@@ -24,8 +25,7 @@ export async function POST(
   }
 
   try {
-    const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
-    const dispatchRes = await fetch(`${baseUrl}/api/tasks/dispatch`, {
+    const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

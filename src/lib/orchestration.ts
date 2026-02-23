@@ -5,7 +5,11 @@
  * and manage sub-agent sessions via Mission Control API.
  */
 
-const BASE_URL = `http://127.0.0.1:${process.env.PORT || 3000}`;
+import { resolveInternalApiUrl } from "@/lib/internal-api";
+
+function apiUrl(pathname: string): string {
+  return resolveInternalApiUrl(pathname);
+}
 
 export interface LogActivityParams {
   taskId: string;
@@ -31,7 +35,7 @@ export interface RegisterSubAgentParams {
 
 export async function logActivity(params: LogActivityParams): Promise<void> {
   try {
-    await fetch(`${BASE_URL}/api/activity`, {
+    await fetch(apiUrl("/api/activity"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -49,7 +53,7 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
 
 export async function logDeliverable(params: LogDeliverableParams): Promise<void> {
   try {
-    await fetch(`${BASE_URL}/api/tasks/${params.taskId}/deliverables`, {
+    await fetch(apiUrl(`/api/tasks/${params.taskId}/deliverables`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -66,7 +70,7 @@ export async function logDeliverable(params: LogDeliverableParams): Promise<void
 
 export async function registerSubAgentSession(params: RegisterSubAgentParams): Promise<void> {
   try {
-    await fetch(`${BASE_URL}/api/tasks/${params.taskId}/subagent`, {
+    await fetch(apiUrl(`/api/tasks/${params.taskId}/subagent`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -81,7 +85,7 @@ export async function registerSubAgentSession(params: RegisterSubAgentParams): P
 
 export async function completeSubAgentSession(sessionId: string): Promise<void> {
   try {
-    await fetch(`${BASE_URL}/api/openclaw/sessions/${sessionId}`, {
+    await fetch(apiUrl(`/api/openclaw/sessions/${sessionId}`), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

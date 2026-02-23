@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask, updateTask } from "@/lib/db";
-import { getOpenClawClient } from "@/lib/openclaw-client";
 import { extractJSON, getMessagesFromOpenClaw } from "@/lib/planning-utils";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { broadcast } from "@/lib/events";
+import { resolveInternalApiUrl } from "@/lib/internal-api";
 
 // GET - Poll for planning updates
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: taskId } = await params;
@@ -85,8 +85,7 @@ export async function GET(
       const freshTask = getTask(taskId);
       if (freshTask?.assigned_agent_id) {
         try {
-          const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
-          const dispatchRes = await fetch(`${baseUrl}/api/tasks/dispatch`, {
+          const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
