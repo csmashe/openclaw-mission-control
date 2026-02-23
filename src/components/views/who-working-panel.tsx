@@ -20,6 +20,8 @@ interface Worker {
   sessionId: string | null;
   lastActivityAt: string | null;
   activityType: string | null;
+  context: string | null;
+  triggerSource: string | null;
   elapsedMs: number | null;
   idleMs: number | null;
   stallState: StallState;
@@ -63,6 +65,24 @@ function formatLastActivity(ts: string | null): string {
   });
 }
 
+function workerSortBucket(status: string): number {
+  const normalized = status.toLowerCase();
+  if (normalized === "running") return 0;
+  if (normalized === "completed" || normalized === "done") return 2;
+  return 1;
+}
+
+function compareWorkers(a: Worker, b: Worker): number {
+  const bucketDiff = workerSortBucket(a.status) - workerSortBucket(b.status);
+  if (bucketDiff !== 0) return bucketDiff;
+
+  const aTime = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
+  const bTime = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
+  if (aTime !== bTime) return bTime - aTime;
+
+  return (a.taskTitle || a.label || "").localeCompare(b.taskTitle || b.label || "");
+}
+
 export function WhoWorkingPanel() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -75,7 +95,8 @@ export function WhoWorkingPanel() {
     try {
       const res = await fetch("/api/who-working", { cache: "no-store" });
       const data = (await res.json()) as WhoWorkingResponse;
-      setWorkers(Array.isArray(data.workers) ? data.workers : []);
+      const incoming = Array.isArray(data.workers) ? [...data.workers].sort(compareWorkers) : [];
+      setWorkers(incoming);
       setGeneratedAt(data.generatedAt ?? null);
       setError(data.error ?? null);
     } catch (err) {
@@ -171,6 +192,9 @@ export function WhoWorkingPanel() {
                 <div className="col-span-3 min-w-0">
                   <p className="font-medium truncate">{worker.taskTitle || worker.label || "Untitled task"}</p>
                   <p className="text-xs text-muted-foreground truncate">{worker.agent}</p>
+                  <p className="text-[11px] text-muted-foreground/80 font-mono truncate" title={worker.sessionKey || undefined}>
+                    {worker.sessionKey || "session:—"}
+                  </p>
                 </div>
 
                 <div className="col-span-2 flex items-center gap-2">
