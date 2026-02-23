@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
     // Build the prompt
     const prompt = isRework
       ? buildReworkPrompt(task, feedback, taskId, dispatchId)
-      : buildTaskPrompt(task, dispatchId);
+      : buildTaskPrompt(task, taskId, dispatchId);
 
     // Send to agent
     try {
@@ -289,7 +289,7 @@ function buildTaskPrompt(task: {
   title: string;
   description: string;
   priority: string;
-}, dispatchId: string): string {
+}, taskId: string, dispatchId: string): string {
   return `## Task Assignment
 
 **Title:** ${task.title}
@@ -305,6 +305,10 @@ ${task.description || "No additional details provided."}
 - Do not assume Codex CLI is installed.
 
 **Dispatch ID:** ${dispatchId}
+
+**Registering deliverables:** When you produce output files, URLs, or artifacts, register them via:
+POST /api/tasks/${taskId}/deliverables
+Body: { "title": "...", "deliverable_type": "file"|"url"|"artifact", "path": "...", "description": "..." }
 
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>

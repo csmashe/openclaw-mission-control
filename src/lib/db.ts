@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { broadcast } from "@/lib/events";
+import { runMigrations } from "@/lib/migrations";
 
 // Use globalThis to ensure a true singleton across Next.js module boundaries.
 // Turbopack/webpack may re-instantiate module-level variables for different API routes.
@@ -25,6 +26,7 @@ export function getDb(): Database.Database {
   db.pragma("foreign_keys = ON");
 
   initializeSchema(db);
+  runMigrations(db);
   globalForDb.__missionControlDb = db;
   return db;
 }
@@ -413,4 +415,99 @@ export function listActivity(opts?: {
   params.push(opts?.limit ?? 50);
 
   return getDb().prepare(sql).all(...params) as ActivityEntry[];
+}
+
+// --- Deliverables ---
+
+export interface TaskDeliverable {
+  id: string;
+  task_id: string;
+  deliverable_type: string;
+  title: string;
+  path: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export function listDeliverables(taskId: string): TaskDeliverable[] {
+  return getDb()
+    .prepare("SELECT * FROM task_deliverables WHERE task_id = ? ORDER BY created_at ASC")
+    .all(taskId) as TaskDeliverable[];
+}
+
+export function addDeliverable(data: {
+  id: string;
+  task_id: string;
+  deliverable_type: string;
+  title: string;
+  path?: string;
+  description?: string;
+}): TaskDeliverable {
+  getDb()
+    .prepare(
+      `INSERT INTO task_deliverables (id, task_id, deliverable_type, title, path, description)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(data.id, data.task_id, data.deliverable_type, data.title, data.path ?? null, data.description ?? null);
+  return getDb().prepare("SELECT * FROM task_deliverables WHERE id = ?").get(data.id) as TaskDeliverable;
+}
+
+export function deleteDeliverable(id: string): void {
+  getDb().prepare("DELETE FROM task_deliverables WHERE id = ?").run(id);
+}
+
+// --- OpenClaw Sessions ---
+
+export interface OpenClawSession {
+  id: string;
+  agent_id: string | null;
+  openclaw_session_id: string;
+  status: string;
+  session_type: string;
+  task_id: string | null;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listSessions(taskId?: string): OpenClawSession[] {
+  if (taskId) {
+    return getDb()
+      .prepare("SELECT * FROM openclaw_sessions WHERE task_id = ? ORDER BY created_at DESC")
+      .all(taskId) as OpenClawSession[];
+  }
+  return getDb()
+    .prepare("SELECT * FROM openclaw_sessions ORDER BY created_at DESC")
+    .all() as OpenClawSession[];
+}
+
+export function createSession(data: {
+  id: string;
+  agent_id?: string;
+  openclaw_session_id: string;
+  session_type?: string;
+  task_id?: string;
+}): OpenClawSession {
+  getDb()
+    .prepare(
+      `INSERT INTO openclaw_sessions (id, agent_id, openclaw_session_id, session_type, task_id)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(data.id, data.agent_id ?? null, data.openclaw_session_id, data.session_type ?? "persistent", data.task_id ?? null);
+  return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(data.id) as OpenClawSession;
+}
+
+export function updateSession(id: string, patch: Partial<{ status: string; ended_at: string }>): OpenClawSession | undefined {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (patch.status !== undefined) { fields.push("status = ?"); values.push(patch.status); }
+  if (patch.ended_at !== undefined) { fields.push("ended_at = ?"); values.push(patch.ended_at); }
+
+  if (fields.length === 0) return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(id) as OpenClawSession | undefined;
+
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+  getDb().prepare(`UPDATE openclaw_sessions SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(id) as OpenClawSession | undefined;
 }

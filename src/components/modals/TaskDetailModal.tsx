@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { getPriorityStyle, timeAgo } from "@/lib/helpers";
 import type { Task, TaskComment } from "@/lib/types";
+import { DeliverablesList } from "@/components/DeliverablesList";
 
 export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
@@ -27,6 +28,7 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   const [sendingComment, setSendingComment] = useState(false);
   const [reworkFeedback, setReworkFeedback] = useState("");
   const [showRework, setShowRework] = useState(false);
+  const [activeTab, setActiveTab] = useState<"activity" | "deliverables">("activity");
   const [reworking, setReworking] = useState(false);
   const [prevStatus, setPrevStatus] = useState(task.status);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -154,49 +156,76 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
           </div>
         )}
 
-        {/* Comments */}
-        <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
-          <h4 className="text-sm font-medium text-muted-foreground shrink-0">
+        {/* Tabs */}
+        <div className="flex gap-2 border-b border-border">
+          <button
+            onClick={() => setActiveTab("activity")}
+            className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "activity"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
             Activity ({comments.length})
-          </h4>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {loading ? (
-              <div className="h-full text-sm text-muted-foreground animate-pulse py-4 text-center overflow-y-auto">Loading...</div>
-            ) : comments.length === 0 ? (
-              <div className="h-full text-sm text-muted-foreground py-4 text-center overflow-y-auto">
-                No activity yet. Assign an agent to start working on this task.
-              </div>
-            ) : (
-              <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
-                <div className="space-y-2">
-                  {comments.map((c) => (
-                    <div
-                      key={c.id}
-                      className={`p-3 rounded-md text-sm border ${
-                        c.author_type === "agent"
-                          ? "bg-primary/5 border-primary/20"
-                          : c.author_type === "system"
-                          ? "bg-blue-500/5 border-blue-500/20"
-                          : "bg-amber-500/5 border-amber-500/20"
-                      }`}
-                    >
-                      <div className={`text-[11px] font-bold uppercase mb-1 ${
-                        c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
-                      }`}>
-                        {c.author_type === "agent" ? `${c.agent_id || "Agent"}` : c.author_type === "system" ? "System" : "You"}
-                      </div>
-                      <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
-                        {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1">
-                        {timeAgo(c.created_at)}
-                      </div>
-                    </div>
-                  ))}
+          </button>
+          <button
+            onClick={() => setActiveTab("deliverables")}
+            className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "deliverables"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Deliverables
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
+          {activeTab === "deliverables" ? (
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              <DeliverablesList taskId={task.id} />
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {loading ? (
+                <div className="h-full text-sm text-muted-foreground animate-pulse py-4 text-center overflow-y-auto">Loading...</div>
+              ) : comments.length === 0 ? (
+                <div className="h-full text-sm text-muted-foreground py-4 text-center overflow-y-auto">
+                  No activity yet. Assign an agent to start working on this task.
                 </div>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
+                  <div className="space-y-2">
+                    {comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className={`p-3 rounded-md text-sm border ${
+                          c.author_type === "agent"
+                            ? "bg-primary/5 border-primary/20"
+                            : c.author_type === "system"
+                            ? "bg-blue-500/5 border-blue-500/20"
+                            : "bg-amber-500/5 border-amber-500/20"
+                        }`}
+                      >
+                        <div className={`text-[11px] font-bold uppercase mb-1 ${
+                          c.author_type === "agent" ? "text-primary" : c.author_type === "system" ? "text-blue-400" : "text-amber-500"
+                        }`}>
+                          {c.author_type === "agent" ? `${c.agent_id || "Agent"}` : c.author_type === "system" ? "System" : "You"}
+                        </div>
+                        <div className="text-foreground whitespace-pre-wrap leading-relaxed text-[13px]">
+                          {c.content.length > 800 ? c.content.slice(0, 800) + "..." : c.content}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-1">
+                          {timeAgo(c.created_at)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* User Comment Input */}
