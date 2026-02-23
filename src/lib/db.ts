@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
+import { broadcast } from "@/lib/events";
 
 // Use globalThis to ensure a true singleton across Next.js module boundaries.
 // Turbopack/webpack may re-instantiate module-level variables for different API routes.
@@ -372,6 +373,20 @@ export function logActivity(data: {
       data.message,
       JSON.stringify(data.metadata ?? {})
     );
+
+  broadcast({
+    type: "activity_logged",
+    payload: {
+      id: data.id,
+      type: data.type,
+      agent_id: data.agent_id ?? null,
+      task_id: data.task_id ?? null,
+      mission_id: data.mission_id ?? null,
+      message: data.message,
+      metadata: JSON.stringify(data.metadata ?? {}),
+      created_at: new Date().toISOString(),
+    },
+  });
 }
 
 // --- Transaction helper ---

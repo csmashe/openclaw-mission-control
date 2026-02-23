@@ -13,6 +13,7 @@ import {
 import type { ChatMessage } from "@/lib/openclaw-client";
 import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
 import { shouldDedupeDispatch } from "@/lib/task-runtime-truth";
+import { broadcast } from "@/lib/events";
 
 // POST /api/tasks/dispatch - Send a task to an agent for processing
 export async function POST(request: NextRequest) {
@@ -223,6 +224,12 @@ export async function POST(request: NextRequest) {
         dispatchStartedAt,
         baselineAssistantCount,
       });
+
+      // Broadcast task update after successful dispatch
+      const updatedTask = getTask(taskId);
+      if (updatedTask) {
+        broadcast({ type: "task_updated", payload: updatedTask });
+      }
 
       return NextResponse.json({
         ok: true,

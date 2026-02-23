@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { getTask, logActivity, updateTask, type Task } from "@/lib/db";
+import { broadcast } from "@/lib/events";
 
 export type TaskStatus = "inbox" | "assigned" | "in_progress" | "review" | "done";
 
@@ -113,6 +114,10 @@ export function transitionTaskStatus(
       ...(opts.metadata ?? {}),
     },
   });
+
+  if (next) {
+    broadcast({ type: "task_updated", payload: next });
+  }
 
   return {
     ok: Boolean(next),

@@ -2,7 +2,12 @@
   "name": "openclaw-mission-control",
   "version": "0.1.0",
   "description": "Mission Control dashboard for OpenClaw — manage agents, tasks, and missions from a command-center UI",
-  "keywords": ["openclaw", "mission-control", "dashboard", "ai-agents"],
+  "keywords": [
+    "openclaw",
+    "mission-control",
+    "dashboard",
+    "ai-agents"
+  ],
   "license": "MIT",
   "bin": {
     "openclaw-mission-control": "./bin/cli.mjs"
@@ -35,7 +40,8 @@
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0",
     "uuid": "^13.0.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

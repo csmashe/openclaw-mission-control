@@ -23,7 +23,9 @@ import { DispatchModal } from "@/components/modals/DispatchModal";
 import { TaskDetailModal } from "@/components/modals/TaskDetailModal";
 import { AgentsView } from "@/components/AgentsView";
 import { MissionsView } from "@/components/MissionsView";
-import type { Task, ActivityEntry, Agent, GatewayStatus, DevicePairStatus, ViewId } from "@/lib/types";
+import { useMissionControl } from "@/lib/store";
+import { useSSE } from "@/hooks/useSSE";
+import type { Task, ViewId } from "@/lib/types";
 import { VALID_VIEWS } from "@/lib/types";
 
 function getViewFromHash(): ViewId {
@@ -33,36 +35,34 @@ function getViewFromHash(): ViewId {
 }
 
 export default function Dashboard() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [activity, setActivity] = useState<ActivityEntry[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({
-    connected: false,
-    agentCount: 0,
-    cronJobCount: 0,
-  });
-  const [devicePairStatus, setDevicePairStatus] = useState<DevicePairStatus>({ pendingCount: 0 });
+  const {
+    tasks, activity, agents, gatewayStatus, devicePairStatus,
+    showCreateModal, showDispatchModal, showTaskDetail,
+    activeView, terminalOpen,
+    setTasks, setActivity, setAgents, setGatewayStatus,
+    setDevicePairStatus, setShowCreateModal, setShowDispatchModal,
+    setShowTaskDetail, setActiveView, setTerminalOpen,
+  } = useMissionControl();
+
   const [approvingDevicePair, setApprovingDevicePair] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDispatchModal, setShowDispatchModal] = useState<Task | null>(null);
-  const [showTaskDetail, setShowTaskDetail] = useState<Task | null>(null);
-  const [activeView, setActiveViewState] = useState<ViewId>(getViewFromHash);
-  const setActiveView = useCallback((view: ViewId) => {
-    setActiveViewState(view);
-    window.location.hash = view === "board" ? "" : view;
-  }, []);
-
-  useEffect(() => {
-    const onHashChange = () => setActiveViewState(getViewFromHash());
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
-  const [terminalOpen, setTerminalOpen] = useState(false);
 
-  // --- Data Fetching ---
+  // SSE for real-time updates
+  useSSE();
+
+  // Hash-based view routing
+  useEffect(() => {
+    setActiveView(getViewFromHash());
+    const onHashChange = () => {
+      const view = getViewFromHash();
+      useMissionControl.setState({ activeView: view });
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [setActiveView]);
+
+  // --- Data Fetching (initial hydration + heartbeat) ---
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -70,7 +70,7 @@ export default function Dashboard() {
       const data = await res.json();
       setTasks(data.tasks || []);
     } catch { /* retry */ }
-  }, []);
+  }, [setTasks]);
 
   const fetchActivity = useCallback(async () => {
     try {
@@ -78,7 +78,7 @@ export default function Dashboard() {
       const data = await res.json();
       setActivity(data.activity || []);
     } catch { /* retry */ }
-  }, []);
+  }, [setActivity]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -86,7 +86,7 @@ export default function Dashboard() {
       const data = await res.json();
       setAgents(data.agents || []);
     } catch { /* retry */ }
-  }, []);
+  }, [setAgents]);
 
   const fetchGatewayStatus = useCallback(async () => {
     try {
@@ -96,7 +96,7 @@ export default function Dashboard() {
     } catch {
       setGatewayStatus({ connected: false, agentCount: 0, cronJobCount: 0 });
     }
-  }, []);
+  }, [setGatewayStatus]);
 
   const fetchDevicePairStatus = useCallback(async () => {
     try {
@@ -110,7 +110,7 @@ export default function Dashboard() {
     } catch (error) {
       setDevicePairStatus({ pendingCount: 0, error: String(error) });
     }
-  }, []);
+  }, [setDevicePairStatus]);
 
   const approveLatestDevicePair = useCallback(async () => {
     setApprovingDevicePair(true);
@@ -119,37 +119,42 @@ export default function Dashboard() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const detail = body?.error || `HTTP ${res.status}`;
-        setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${detail}` }));
+        const prev = useMissionControl.getState().devicePairStatus;
+        setDevicePairStatus({ ...prev, error: `Approval failed: ${detail}` });
         return;
       }
-      setDevicePairStatus((prev) => ({ ...prev, error: undefined }));
+      const prev = useMissionControl.getState().devicePairStatus;
+      setDevicePairStatus({ ...prev, error: undefined });
       await fetchDevicePairStatus();
       await fetchGatewayStatus();
       await fetchAgents();
     } catch (err) {
-      setDevicePairStatus((prev) => ({ ...prev, error: `Approval failed: ${String(err)}` }));
+      const prev = useMissionControl.getState().devicePairStatus;
+      setDevicePairStatus({ ...prev, error: `Approval failed: ${String(err)}` });
     } finally {
       setApprovingDevicePair(false);
     }
-  }, [fetchAgents, fetchDevicePairStatus, fetchGatewayStatus]);
+  }, [fetchAgents, fetchDevicePairStatus, fetchGatewayStatus, setDevicePairStatus]);
 
+  // Initial data hydration
   useEffect(() => {
     fetchTasks();
     fetchActivity();
     fetchAgents();
     fetchGatewayStatus();
     fetchDevicePairStatus();
+  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus, fetchDevicePairStatus]);
 
+  // 30s heartbeat for gateway status + completion checks (server-side only)
+  useEffect(() => {
     const interval = setInterval(async () => {
       try { await fetch("/api/tasks/check-completion"); } catch { /* ignore */ }
-      fetchTasks();
-      fetchActivity();
       fetchGatewayStatus();
       fetchDevicePairStatus();
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [fetchTasks, fetchActivity, fetchAgents, fetchGatewayStatus, fetchDevicePairStatus]);
+  }, [fetchGatewayStatus, fetchDevicePairStatus]);
 
   // --- Task Actions ---
 

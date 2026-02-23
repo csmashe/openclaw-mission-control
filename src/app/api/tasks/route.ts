@@ -9,6 +9,7 @@ import {
   logActivity,
 } from "@/lib/db";
 import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
+import { broadcast } from "@/lib/events";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -45,6 +46,8 @@ export async function POST(request: NextRequest) {
     mission_id: task.mission_id ?? undefined,
     message: `Task "${task.title}" created`,
   });
+
+  broadcast({ type: "task_created", payload: task });
 
   return NextResponse.json({ task }, { status: 201 });
 }
@@ -95,6 +98,10 @@ export async function PATCH(request: NextRequest) {
     task = updateTask(id, restPatch);
   }
 
+  if (task) {
+    broadcast({ type: "task_updated", payload: task });
+  }
+
   return NextResponse.json({ task });
 }
 
@@ -119,6 +126,8 @@ export async function DELETE(request: NextRequest) {
     task_id: id,
     message: `Task "${existing.title}" deleted`,
   });
+
+  broadcast({ type: "task_deleted", payload: { taskId: id } });
 
   return NextResponse.json({ ok: true });
 }
