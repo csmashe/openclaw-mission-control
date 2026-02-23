@@ -310,6 +310,10 @@ ${task.description || "No additional details provided."}
 POST /api/tasks/${taskId}/deliverables
 Body: { "title": "...", "deliverable_type": "file"|"url"|"artifact", "path": "...", "description": "..." }
 
+**Spawning sub-agents:** If you need to delegate subtasks, register sub-agent sessions via:
+POST /api/tasks/${taskId}/subagent
+Body: { "openclaw_session_id": "...", "agent_name": "..." }
+
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
 
