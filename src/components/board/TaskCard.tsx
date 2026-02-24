@@ -28,6 +28,7 @@ export function TaskCard({
   const isAgentWorking = isInProgress && !!task.assigned_agent_id;
   const isDone = task.status === "done";
   const isPlanning = task.status === "planning";
+  const hasSpecReady = isPlanning && (task as unknown as Record<string, unknown>).planning_complete === 1;
   const hasQuestionWaiting = isPlanning && task.planning_question_waiting === 1;
   const priority = getPriorityStyle(task.priority);
 
@@ -107,13 +108,19 @@ export function TaskCard({
           {isAgentWorking && (
             <span className="text-[10px] font-mono text-primary animate-pulse">Working...</span>
           )}
-          {hasQuestionWaiting && (
+          {hasSpecReady && (
+            <span className="flex items-center gap-1 text-[10px] font-mono text-green-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              Spec ready
+            </span>
+          )}
+          {hasQuestionWaiting && !hasSpecReady && (
             <span className="flex items-center gap-1 text-[10px] font-mono text-amber-500">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
               Question waiting
             </span>
           )}
-          {isPlanning && !hasQuestionWaiting && (
+          {isPlanning && !hasQuestionWaiting && !hasSpecReady && (
             <span className="flex items-center gap-1 text-[10px] font-mono text-violet-500">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
               Planning...

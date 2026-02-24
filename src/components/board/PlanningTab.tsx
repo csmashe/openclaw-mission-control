@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { CheckCircle, Lock, AlertCircle, Loader2, X } from "lucide-react";
+import { CheckCircle, Lock, AlertCircle, Loader2, X, Send, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PlanningOption {
@@ -58,6 +58,9 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [retryingDispatch, setRetryingDispatch] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [approvingSpec, setApprovingSpec] = useState(false);
+  const [requestingChanges, setRequestingChanges] = useState(false);
+  const [revisionFeedback, setRevisionFeedback] = useState("");
 
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -353,14 +356,66 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
     );
   }
 
-  // Planning complete - show spec
+  const approveSpec = async () => {
+    setApprovingSpec(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/planning/approve`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        await loadState();
+      } else {
+        setError(`Approve failed: ${data.error}`);
+      }
+    } catch {
+      setError("Failed to approve spec");
+    } finally {
+      setApprovingSpec(false);
+    }
+  };
+
+  const submitRevision = async () => {
+    if (!revisionFeedback.trim()) return;
+
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/planning/revise`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: revisionFeedback }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setRevisionFeedback("");
+        setRequestingChanges(false);
+        setState((prev) => prev ? {
+          ...prev,
+          isComplete: false,
+          spec: undefined,
+        } : prev);
+        startPolling();
+      } else {
+        setError(`Revision failed: ${data.error}`);
+      }
+    } catch {
+      setError("Failed to send revision feedback");
+    }
+  };
+
+  // Planning complete - show spec with approval gate
   if (state?.isComplete && state?.spec) {
     return (
       <div className="p-4 space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-green-500">
             <Lock className="w-5 h-5" />
-            <span className="font-medium">Planning Complete</span>
+            <span className="font-medium">Spec Ready for Review</span>
           </div>
           {state.dispatchError && (
             <span className="text-sm text-amber-500">Dispatch Failed</span>
@@ -433,6 +488,64 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 text-destructive text-sm">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
+
+        {/* Approval / Request Changes actions */}
+        {requestingChanges ? (
+          <div className="space-y-3">
+            <label className="text-sm font-medium">What changes would you like?</label>
+            <textarea
+              value={revisionFeedback}
+              onChange={(e) => setRevisionFeedback(e.target.value)}
+              placeholder="Describe the changes you'd like to the spec..."
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px] resize-y"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                onClick={submitRevision}
+                disabled={!revisionFeedback.trim()}
+                size="sm"
+              >
+                <Send className="w-3 h-3 mr-1" /> Send Feedback
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setRequestingChanges(false); setRevisionFeedback(""); }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Button
+              onClick={approveSpec}
+              disabled={approvingSpec}
+              className="flex-1"
+            >
+              {approvingSpec ? (
+                <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Approving...</>
+              ) : (
+                <><CheckCircle className="w-4 h-4 mr-2" /> Approve &amp; Dispatch</>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setRequestingChanges(true)}
+              disabled={approvingSpec}
+            >
+              <MessageSquare className="w-4 h-4 mr-2" /> Request Changes
+            </Button>
           </div>
         )}
       </div>

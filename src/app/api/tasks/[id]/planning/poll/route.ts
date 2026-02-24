@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTask, updateTask } from "@/lib/db";
+import { getTask, updateTask, addComment } from "@/lib/db";
 import { extractJSON, getMessagesFromOpenClaw } from "@/lib/planning-utils";
-import { transitionTaskStatus } from "@/lib/task-state";
 import { broadcast } from "@/lib/events";
-import { resolveInternalApiUrl } from "@/lib/internal-api";
-import { isOrchestratorEnabled, orchestrateAfterPlanning } from "@/lib/orchestrator";
+import { v4 as uuidv4 } from "uuid";
 
 // GET - Poll for planning updates
 export async function GET(
@@ -84,7 +82,7 @@ export async function GET(
     }
 
     if (complete && spec) {
-      // Mark planning as complete
+      // Mark planning as complete — spec awaits user approval before dispatch
       updateTask(taskId, {
         ...({
           planning_complete: 1,
@@ -93,50 +91,16 @@ export async function GET(
         } as Record<string, unknown>),
       } as Parameters<typeof updateTask>[1]);
 
-      // Auto-dispatch: route through orchestrator if enabled, else direct dispatch
-      const freshTask = getTask(taskId);
-      if (freshTask?.assigned_agent_id) {
-        if (isOrchestratorEnabled()) {
-          // Fire-and-forget: orchestrator will evaluate spec and dispatch
-          orchestrateAfterPlanning(taskId).catch((err) => {
-            console.error(`[Planning Poll] Orchestrator post-planning failed for ${taskId}:`, err);
-            // Fallback: direct dispatch
-            fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ taskId, agentId: freshTask.assigned_agent_id }),
-            }).catch(() => {});
-          });
-        } else {
-          try {
-            const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                taskId,
-                agentId: freshTask.assigned_agent_id,
-              }),
-            });
-            if (!dispatchRes.ok) {
-              const err = await dispatchRes.json().catch(() => ({}));
-              updateTask(taskId, {
-                ...({ planning_dispatch_error: err.error || "Dispatch failed" } as Record<string, unknown>),
-              } as Parameters<typeof updateTask>[1]);
-            }
-          } catch (dispatchErr) {
-            updateTask(taskId, {
-              ...({ planning_dispatch_error: String(dispatchErr) } as Record<string, unknown>),
-            } as Parameters<typeof updateTask>[1]);
-          }
-        }
-      } else {
-        // Move to inbox for manual dispatch
-        transitionTaskStatus(taskId, "inbox", {
-          actor: "system",
-          reason: "planning_complete_awaiting_dispatch",
-          bypassGuards: true,
-        });
-      }
+      // Log spec ready in activity
+      const specObj = spec as Record<string, unknown>;
+      const specTitle = (specObj.title as string) || "Untitled";
+      const specSummary = (specObj.summary as string) || "";
+      addComment({
+        id: uuidv4(),
+        task_id: taskId,
+        author_type: "system",
+        content: `📋 Spec ready for review: "${specTitle}"\n${specSummary}`,
+      });
 
       const updatedTask = getTask(taskId);
       if (updatedTask) {
