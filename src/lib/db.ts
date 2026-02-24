@@ -211,6 +211,7 @@ export interface Task {
   orchestrator_session_key: string | null;
   tester_session_key: string | null;
   rework_count: number;
+  planning_question_waiting: number;
 }
 
 export function listTasks(filters?: {
@@ -294,6 +295,7 @@ export function updateTask(
     orchestrator_session_key: string | null;
     tester_session_key: string | null;
     rework_count: number;
+    planning_question_waiting: number;
   }>
 ): Task | undefined {
   const fields: string[] = [];

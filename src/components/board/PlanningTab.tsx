@@ -446,8 +446,8 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         <div className="text-center">
           <h3 className="text-lg font-medium mb-2">Start Planning</h3>
           <p className="text-muted-foreground text-sm max-w-md">
-            The orchestrator will ask you a few clarifying questions to understand
-            exactly what you need. All questions are multiple choice.
+            The planner will review the task and create a specification.
+            It may ask clarifying questions if needed.
           </p>
         </div>
 

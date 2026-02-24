@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask, updateTask } from "@/lib/db";
 import { getOpenClawClient } from "@/lib/openclaw-client";
+import { broadcast } from "@/lib/events";
 
 // POST - Submit answer to planning question
 export async function POST(
@@ -47,8 +48,16 @@ Continue with the next question in JSON format, or if all questions have been as
     messages.push({ role: "user", content: answerText, timestamp: Date.now() });
 
     updateTask(taskId, {
-      ...({ planning_messages: JSON.stringify(messages) } as Record<string, unknown>),
+      ...({
+        planning_messages: JSON.stringify(messages),
+        planning_question_waiting: 0,
+      } as Record<string, unknown>),
     } as Parameters<typeof updateTask>[1]);
+
+    const updatedTask = getTask(taskId);
+    if (updatedTask) {
+      broadcast({ type: "task_updated", payload: updatedTask });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

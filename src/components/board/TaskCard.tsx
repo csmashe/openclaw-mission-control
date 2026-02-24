@@ -27,6 +27,8 @@ export function TaskCard({
   const isReview = task.status === "review";
   const isAgentWorking = isInProgress && !!task.assigned_agent_id;
   const isDone = task.status === "done";
+  const isPlanning = task.status === "planning";
+  const hasQuestionWaiting = isPlanning && task.planning_question_waiting === 1;
   const priority = getPriorityStyle(task.priority);
 
   return (
@@ -104,6 +106,18 @@ export function TaskCard({
         <div className="flex items-center gap-1">
           {isAgentWorking && (
             <span className="text-[10px] font-mono text-primary animate-pulse">Working...</span>
+          )}
+          {hasQuestionWaiting && (
+            <span className="flex items-center gap-1 text-[10px] font-mono text-amber-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Question waiting
+            </span>
+          )}
+          {isPlanning && !hasQuestionWaiting && (
+            <span className="flex items-center gap-1 text-[10px] font-mono text-violet-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+              Planning...
+            </span>
           )}
           {isReview && (
             <span className="text-[10px] font-mono text-amber-500">Needs Review</span>

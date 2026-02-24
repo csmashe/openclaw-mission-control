@@ -68,10 +68,20 @@ export async function GET(
       }
     }
 
-    // Save updated messages
+    // Save updated messages + set question waiting flag
     updateTask(taskId, {
-      ...({ planning_messages: JSON.stringify(storedMessages) } as Record<string, unknown>),
+      ...({
+        planning_messages: JSON.stringify(storedMessages),
+        planning_question_waiting: currentQuestion ? 1 : 0,
+      } as Record<string, unknown>),
     } as Parameters<typeof updateTask>[1]);
+
+    if (currentQuestion && !complete) {
+      const questionTask = getTask(taskId);
+      if (questionTask) {
+        broadcast({ type: "task_updated", payload: questionTask });
+      }
+    }
 
     if (complete && spec) {
       // Mark planning as complete
@@ -79,6 +89,7 @@ export async function GET(
         ...({
           planning_complete: 1,
           planning_spec: JSON.stringify(spec),
+          planning_question_waiting: 0,
         } as Record<string, unknown>),
       } as Parameters<typeof updateTask>[1]);
 

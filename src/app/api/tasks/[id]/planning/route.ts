@@ -74,36 +74,20 @@ export async function POST(
   const settings = getWorkflowSettings();
   const plannerAgent = settings.planner_agent_id || "main";
   const sessionKey = `agent:${plannerAgent}:planning:${taskId}`;
-  const prompt = `You are a planning orchestrator. Your job is to ask clarifying questions about this task and then produce a detailed specification.
+  const prompt = `You are a planning agent. Review the task below and produce a detailed specification.
 
 ## Task
 **Title:** ${task.title}
 **Description:** ${task.description || "No description provided."}
 **Priority:** ${task.priority}
 
-Ask 3-5 multiple-choice questions to clarify requirements. Each response must be valid JSON:
-{
-  "question": "Your question?",
-  "options": [
-    {"id": "a", "label": "Option A"},
-    {"id": "b", "label": "Option B"},
-    {"id": "c", "label": "Option C"},
-    {"id": "other", "label": "Other"}
-  ]
-}
+## Instructions
+- If the task description is clear enough, produce the spec immediately — no questions needed.
+- If requirements are genuinely ambiguous or critical details are missing, ask ONE clarifying question at a time.
+- Question format (JSON): { "question": "...", "options": [{"id": "a", "label": "..."}, ...] }
+- Spec format (JSON): { "complete": true, "spec": { "title": "...", "summary": "...", "deliverables": ["..."], "success_criteria": ["..."] } }
 
-After all questions are answered, respond with a completion JSON:
-{
-  "complete": true,
-  "spec": {
-    "title": "...",
-    "summary": "...",
-    "deliverables": ["..."],
-    "success_criteria": ["..."]
-  }
-}
-
-Start with your first question.`;
+Begin — either produce the spec directly, or ask your first question.`;
 
   try {
     const client = getOpenClawClient();
@@ -162,6 +146,7 @@ export async function DELETE(
       planning_spec: null,
       planning_agents: null,
       planning_dispatch_error: null,
+      planning_question_waiting: 0,
     } as Record<string, unknown>),
   } as Parameters<typeof updateTask>[1]);
 

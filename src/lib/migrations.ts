@@ -97,6 +97,12 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE tasks ADD COLUMN rework_count INTEGER DEFAULT 0;
     `,
   },
+  {
+    id: "006_planning_question_waiting",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN planning_question_waiting INTEGER DEFAULT 0;
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
