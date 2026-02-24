@@ -1,6 +1,6 @@
 function extractDispatchCompletion(text) {
   const m = text.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?:/i);
-  return { dispatchId: m?.[1] ?? null };
+  return { hasCompletionMarker: Boolean(m), dispatchId: m?.[1] ?? null };
 }
 
 function evaluateCompletion(task, params) {
@@ -10,8 +10,12 @@ function evaluateCompletion(task, params) {
   const baseline = task.dispatch_message_count_start ?? 0;
 
   if (!dispatchId || !dispatchStartedAt) return { accepted: false, completionReason: 'rejected_missing_dispatch_context' };
-  if (!params.payloadDispatchId) return { accepted: false, completionReason: 'rejected_missing_completion_marker' };
-  if (params.payloadDispatchId !== dispatchId) return { accepted: false, completionReason: 'rejected_stale_dispatch_id' };
+
+  const effectivePayloadDispatchId =
+    params.payloadDispatchId ?? (params.hasCompletionMarker ? dispatchId : null);
+
+  if (!effectivePayloadDispatchId) return { accepted: false, completionReason: 'rejected_missing_completion_marker' };
+  if (effectivePayloadDispatchId !== dispatchId) return { accepted: false, completionReason: 'rejected_stale_dispatch_id' };
 
   const dispatchMs = Date.parse(dispatchStartedAt);
   const evidenceMs = params.evidenceTimestamp ? Date.parse(params.evidenceTimestamp) : NaN;
@@ -49,12 +53,23 @@ const cases = [
     expectAccepted: true,
     expectReason: 'accepted',
   },
+  {
+    name: 'marker without dispatch id falls back to active dispatch',
+    text: 'TASK_COMPLETE: implemented changes, verification: complete, output attached',
+    input: { evidenceTimestamp: '2026-02-21T18:01:10.000Z', assistantMessageCount: 12, nowIso: '2026-02-21T18:01:12.000Z' },
+    expectAccepted: true,
+    expectReason: 'accepted',
+  },
 ];
 
 let fails = 0;
 for (const c of cases) {
   const dispatch = extractDispatchCompletion(c.text);
-  const r = evaluateCompletion(task, { ...c.input, payloadDispatchId: dispatch.dispatchId });
+  const r = evaluateCompletion(task, {
+    ...c.input,
+    payloadDispatchId: dispatch.dispatchId,
+    hasCompletionMarker: dispatch.hasCompletionMarker,
+  });
   const ok = r.accepted === c.expectAccepted && r.completionReason === c.expectReason;
   if (!ok) fails++;
   console.log(`${ok ? 'PASS' : 'FAIL'}: ${c.name}`);

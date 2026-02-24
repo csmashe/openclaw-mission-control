@@ -2,29 +2,11 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 import { listTasks, addComment, logActivity, listComments, listDeliverables } from "@/lib/db";
-import { evaluateCompletion, extractDispatchCompletion } from "@/lib/completion-gate";
+import { evaluateCompletion, extractDispatchCompletion, extractTextContent } from "@/lib/completion-gate";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { reconcileTaskRuntimeTruth } from "@/lib/task-reconciler";
 import { resolveInternalApiUrl } from "@/lib/internal-api";
-
-/**
- * Extract text content from chat message content.
- * The gateway may return content as a string OR as an array of content blocks
- * (e.g. [{type: "text", text: "..."}, ...] from Anthropic API format).
- */
-function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block: Record<string, unknown>) => block.type === "text" && block.text)
-      .map((block: Record<string, unknown>) => block.text as string)
-      .join("\n");
-  }
-  if (content && typeof content === "object") {
-    return JSON.stringify(content);
-  }
-  return "";
-}
+import { getAgentTaskMonitor } from "@/lib/agent-task-monitor";
 
 function isSubstantiveCompletion(text: string): boolean {
   const t = (text || "").trim();
@@ -74,8 +56,10 @@ export async function GET() {
   await reconcileTaskRuntimeTruth();
 
   const inProgressTasks = listTasks({ status: "in_progress" });
+  const activeMonitors = getAgentTaskMonitor().getActiveMonitors();
+  const monitoredSessions = new Set(activeMonitors.map((m) => m.sessionKey));
   const tasksToCheck = inProgressTasks.filter(
-    (t) => t.assigned_agent_id && t.openclaw_session_key
+    (t) => t.assigned_agent_id && t.openclaw_session_key && !monitoredSessions.has(t.openclaw_session_key)
   );
 
   if (tasksToCheck.length === 0) {
@@ -120,19 +104,24 @@ export async function GET() {
           const evidenceTimestamp = latestResponse.timestamp ?? new Date().toISOString();
           const decision = evaluateCompletion(task, {
             payloadDispatchId: extracted.dispatchId,
+            hasCompletionMarker: extracted.hasCompletionMarker,
             evidenceTimestamp,
             assistantMessageCount: assistantMsgs.length,
           });
 
           if (!decision.accepted) {
             const maybeCompletionSignal =
-              isSubstantiveCompletion(responseText) || !!extracted.dispatchId;
+              isSubstantiveCompletion(responseText) || extracted.hasCompletionMarker;
             if (!maybeCompletionSignal) {
               continue;
             }
 
-            // Avoid repeated spam logs for the same unchanged assistant output.
-            if (sameAgentCommentExists) {
+            // Allow re-evaluation for transient guard outcomes.
+            const retryableRejection =
+              decision.completionReason === "rejected_suspicious_instant_no_new_evidence";
+
+            // Avoid repeated spam logs for unchanged assistant output when rejection is final.
+            if (sameAgentCommentExists && !retryableRejection) {
               continue;
             }
 

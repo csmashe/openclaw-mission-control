@@ -18,16 +18,32 @@ export interface CompletionDecision {
 
 const INSTANT_WINDOW_MS = 5_000;
 
-export function extractDispatchCompletion(text: unknown): { dispatchId: string | null } {
-  const s = typeof text === "string" ? text : JSON.stringify(text ?? "");
-  const m = s.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?:/i);
-  return { dispatchId: m?.[1] ?? null };
+export function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((block: Record<string, unknown>) => block.type === "text" && block.text)
+      .map((block: Record<string, unknown>) => String(block.text))
+      .join("\n");
+  }
+  if (content && typeof content === "object") return JSON.stringify(content);
+  return "";
+}
+
+export function extractDispatchCompletion(text: unknown): {
+  hasCompletionMarker: boolean;
+  dispatchId: string | null;
+} {
+  const s = extractTextContent(text);
+  const m = s.match(/TASK_COMPLETE(?:\s+dispatch_id=([a-zA-Z0-9-]+))?(?:\s*[:\-]|\s|$)/i);
+  return { hasCompletionMarker: Boolean(m), dispatchId: m?.[1] ?? null };
 }
 
 export function evaluateCompletion(
   task: Task,
   params: {
     payloadDispatchId: string | null;
+    hasCompletionMarker?: boolean;
     evidenceTimestamp: string | null;
     assistantMessageCount: number;
     nowIso?: string;
@@ -48,7 +64,10 @@ export function evaluateCompletion(
     };
   }
 
-  if (!params.payloadDispatchId) {
+  const effectivePayloadDispatchId =
+    params.payloadDispatchId ?? (params.hasCompletionMarker ? dispatchId : null);
+
+  if (!effectivePayloadDispatchId) {
     return {
       accepted: false,
       completionReason: "rejected_missing_completion_marker",
@@ -58,12 +77,12 @@ export function evaluateCompletion(
     };
   }
 
-  if (params.payloadDispatchId !== dispatchId) {
+  if (effectivePayloadDispatchId !== dispatchId) {
     return {
       accepted: false,
       completionReason: "rejected_stale_dispatch_id",
       dispatchId,
-      payloadDispatchId: params.payloadDispatchId,
+      payloadDispatchId: effectivePayloadDispatchId,
       evidenceTimestamp: params.evidenceTimestamp,
     };
   }
@@ -75,7 +94,7 @@ export function evaluateCompletion(
       accepted: false,
       completionReason: "rejected_stale_evidence_timestamp",
       dispatchId,
-      payloadDispatchId: params.payloadDispatchId,
+      payloadDispatchId: effectivePayloadDispatchId,
       evidenceTimestamp: params.evidenceTimestamp,
     };
   }
@@ -87,7 +106,7 @@ export function evaluateCompletion(
       accepted: false,
       completionReason: "rejected_suspicious_instant_no_new_evidence",
       dispatchId,
-      payloadDispatchId: params.payloadDispatchId,
+      payloadDispatchId: effectivePayloadDispatchId,
       evidenceTimestamp: params.evidenceTimestamp,
     };
   }
@@ -96,7 +115,7 @@ export function evaluateCompletion(
     accepted: true,
     completionReason: "accepted",
     dispatchId,
-    payloadDispatchId: params.payloadDispatchId,
+    payloadDispatchId: effectivePayloadDispatchId,
     evidenceTimestamp: params.evidenceTimestamp,
   };
 }

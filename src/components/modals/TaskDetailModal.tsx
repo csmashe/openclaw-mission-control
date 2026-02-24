@@ -22,7 +22,7 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
   onClose: () => void;
   onMoveToDone: () => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
 }) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,13 +46,16 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   }, [task.id]);
 
   useEffect(() => {
-    fetchComments().then(() => setLoading(false));
+    setLoading(true);
+    setComments([]);
+    fetchComments().finally(() => setLoading(false));
+
     const interval = setInterval(async () => {
       await fetchComments();
-      onRefresh(); // Also refresh task status
+      await onRefresh(); // Also refresh task status
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchComments, onRefresh]);
+  }, [task.id, fetchComments, onRefresh]);
 
   // Auto-scroll when new comments arrive
   useEffect(() => {

@@ -1,8 +1,20 @@
 import type { ColumnId } from "./types";
 
+function parseTimestamp(dateStr: string): Date {
+  const raw = String(dateStr || "").trim();
+  const base = raw.includes("T") ? raw : raw.replace(" ", "T");
+
+  // If timezone is already present, keep it as-is. If not, treat as UTC.
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(base);
+  const normalized = hasTimezone ? base : `${base}Z`;
+  return new Date(normalized);
+}
+
 export function timeAgo(dateStr: string): string {
-  const date = new Date(dateStr + "Z");
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const date = parseTimestamp(dateStr);
+  const ms = date.getTime();
+  if (!Number.isFinite(ms)) return "just now";
+  const seconds = Math.floor((Date.now() - ms) / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -13,7 +25,8 @@ export function timeAgo(dateStr: string): string {
 }
 
 export function formatTime(dateStr: string): string {
-  const date = new Date(dateStr + "Z");
+  const date = parseTimestamp(dateStr);
+  if (!Number.isFinite(date.getTime())) return "--:--:--";
   return date.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",

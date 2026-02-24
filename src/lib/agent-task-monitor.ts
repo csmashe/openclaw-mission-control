@@ -1,11 +1,22 @@
 import { v4 as uuidv4 } from "uuid";
 import { getOpenClawClient } from "./openclaw-client";
 import { getTask, addComment, logActivity, listDeliverables } from "./db";
-import { evaluateCompletion, extractDispatchCompletion } from "./completion-gate";
+import { evaluateCompletion, extractDispatchCompletion, extractTextContent } from "./completion-gate";
 import { transitionTaskStatus } from "./task-state";
 import { resolveInternalApiUrl } from "./internal-api";
 
 // --- Types ---
+
+function isLikelyCompletionSignal(text: string, hasMarker: boolean): boolean {
+  if (hasMarker) return true;
+  const lower = (text || "").toLowerCase();
+  return (
+    lower.includes("done") ||
+    lower.includes("completed") ||
+    lower.includes("implemented") ||
+    lower.includes("finished")
+  );
+}
 
 interface ActiveMonitor {
   taskId: string;
@@ -354,7 +365,7 @@ class AgentTaskMonitor {
    */
   private async handleCompletion(
     monitor: ActiveMonitor,
-    responseText: string,
+    responseContent: unknown,
     assistantMessageCount: number,
     evidenceTimestamp: string
   ): Promise<void> {
@@ -369,14 +380,20 @@ class AgentTaskMonitor {
       return;
     }
 
+    const responseText = extractTextContent(responseContent);
     const extracted = extractDispatchCompletion(responseText || "");
     const decision = evaluateCompletion(task, {
       payloadDispatchId: extracted.dispatchId,
+      hasCompletionMarker: extracted.hasCompletionMarker,
       evidenceTimestamp,
       assistantMessageCount,
     });
 
     if (!decision.accepted) {
+      if (!isLikelyCompletionSignal(responseText, extracted.hasCompletionMarker)) {
+        return;
+      }
+
       logActivity({
         id: uuidv4(),
         type: "task_completion_gate_rejected",

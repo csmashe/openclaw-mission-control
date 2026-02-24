@@ -22,6 +22,14 @@ import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { CreateTaskModal } from "@/components/modals/CreateTaskModal";
 import { DispatchModal } from "@/components/modals/DispatchModal";
 import { TaskDetailModal } from "@/components/modals/TaskDetailModal";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AgentsView } from "@/components/AgentsView";
 import { MissionsView } from "@/components/MissionsView";
 import { useMissionControl } from "@/lib/store";
@@ -48,6 +56,7 @@ export default function Dashboard() {
   const [approvingDevicePair, setApprovingDevicePair] = useState(false);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
 
   // SSE for real-time updates
   useSSE();
@@ -65,12 +74,16 @@ export default function Dashboard() {
 
   // --- Data Fetching (initial hydration + heartbeat) ---
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (): Promise<Task[]> => {
     try {
       const res = await fetch("/api/tasks");
       const data = await res.json();
-      setTasks(data.tasks || []);
-    } catch { /* retry */ }
+      const nextTasks = data.tasks || [];
+      setTasks(nextTasks);
+      return nextTasks;
+    } catch {
+      return [];
+    }
   }, [setTasks]);
 
   const fetchActivity = useCallback(async () => {
@@ -199,15 +212,15 @@ export default function Dashboard() {
   };
 
   const deleteTask = async (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    const confirmed = window.confirm(
-      `Delete task "${task?.title || taskId}"? This cannot be undone.`
-    );
-    if (!confirmed) return;
+    const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+    if (!res.ok) {
+      alert(`Delete failed (HTTP ${res.status}). Please try again.`);
+      return;
+    }
 
-    await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
     await fetchTasks();
     await fetchActivity();
+    setDeleteTarget(null);
   };
 
   const dispatchTask = async (taskId: string, agentId: string) => {
@@ -253,6 +266,14 @@ export default function Dashboard() {
   };
 
   const getColumnTasks = (status: string) => tasks.filter((t) => t.status === status);
+
+  const refreshTaskDetail = useCallback(async (taskId: string) => {
+    const latestTasks = await fetchTasks();
+    const updated = latestTasks.find((t) => t.id === taskId) ?? null;
+    if (updated) {
+      setShowTaskDetail(updated);
+    }
+  }, [fetchTasks, setShowTaskDetail]);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -314,7 +335,10 @@ export default function Dashboard() {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               dragOverColumn={dragOverColumn}
-              onDeleteTask={deleteTask}
+              onDeleteTask={(taskId) => {
+                const target = tasks.find((t) => t.id === taskId) ?? null;
+                setDeleteTarget(target);
+              }}
               onDispatchTask={(task) => setShowDispatchModal(task)}
               onViewTask={(task) => setShowTaskDetail(task)}
               onMoveToDown={(taskId: string) => moveTask(taskId, "done")}
@@ -366,9 +390,34 @@ export default function Dashboard() {
           task={showTaskDetail}
           onClose={() => setShowTaskDetail(null)}
           onMoveToDone={() => { moveTask(showTaskDetail.id, "done"); setShowTaskDetail(null); }}
-          onRefresh={async () => { await fetchTasks(); const updated = tasks.find(t => t.id === showTaskDetail.id); if (updated) setShowTaskDetail(updated); }}
+          onRefresh={() => refreshTaskDetail(showTaskDetail.id)}
         />
       )}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete task?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget
+                ? `Delete "${deleteTarget.title}"? This action cannot be undone.`
+                : "This action cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!deleteTarget) return;
+                void deleteTask(deleteTarget.id);
+              }}
+            >
+              Delete task
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
