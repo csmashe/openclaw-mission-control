@@ -502,14 +502,15 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
             </h3>
 
             <div className="space-y-3">
-              {state.currentQuestion.options.map((option) => {
-                const isSelected = selectedOption === option.label;
-                const isOther = option.id === "other" || option.label.toLowerCase() === "other";
-                const isThisOptionSubmitting = isSubmittingAnswer && isSelected;
+              {state.currentQuestion.options
+                .filter((o) => o.id !== "other" && o.label.toLowerCase() !== "other")
+                .map((option) => {
+                  const isSelected = selectedOption === option.label;
+                  const isThisOptionSubmitting = isSubmittingAnswer && isSelected;
 
-                return (
-                  <div key={option.id}>
+                  return (
                     <button
+                      key={option.id}
                       onClick={() => setSelectedOption(option.label)}
                       disabled={submitting}
                       className={`w-full flex items-center gap-3 p-4 rounded-lg border transition-all text-left ${
@@ -532,22 +533,49 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
                         <CheckCircle className="w-5 h-5 text-primary" />
                       ) : null}
                     </button>
+                  );
+                })}
 
-                    {isOther && isSelected && (
-                      <div className="mt-2 ml-11">
-                        <input
-                          type="text"
-                          value={otherText}
-                          onChange={(e) => setOtherText(e.target.value)}
-                          placeholder="Please specify..."
-                          className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                          disabled={submitting}
-                        />
-                      </div>
-                    )}
+              {/* Always show a free-text "Other" option */}
+              <div>
+                <button
+                  onClick={() => setSelectedOption("Other")}
+                  disabled={submitting}
+                  className={`w-full flex items-center gap-3 p-4 rounded-lg border transition-all text-left ${
+                    isSubmittingAnswer && selectedOption === "Other"
+                      ? "border-primary bg-primary/20"
+                      : selectedOption === "Other"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50"
+                  } disabled:opacity-50`}
+                >
+                  <span className={`w-8 h-8 rounded flex items-center justify-center text-sm font-bold ${
+                    selectedOption === "Other" ? "bg-primary text-primary-foreground" : "bg-muted"
+                  }`}>
+                    ✎
+                  </span>
+                  <span className="flex-1">Other</span>
+                  {isSubmittingAnswer && selectedOption === "Other" ? (
+                    <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                  ) : selectedOption === "Other" && !submitting ? (
+                    <CheckCircle className="w-5 h-5 text-primary" />
+                  ) : null}
+                </button>
+
+                {selectedOption === "Other" && (
+                  <div className="mt-2 ml-11">
+                    <input
+                      type="text"
+                      value={otherText}
+                      onChange={(e) => setOtherText(e.target.value)}
+                      placeholder="Please specify..."
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      disabled={submitting}
+                      autoFocus
+                    />
                   </div>
-                );
-              })}
+                )}
+              </div>
             </div>
 
             {error && (
