@@ -170,6 +170,21 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchGatewayStatus, fetchDevicePairStatus]);
 
+  // Background polling for tasks in planning status (5s interval)
+  // This ensures the board updates even when the task detail modal is closed.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const planningTasks = useMissionControl.getState().tasks.filter(
+        (t) => t.status === "planning" && !(t as unknown as Record<string, unknown>).planning_complete
+      );
+      for (const t of planningTasks) {
+        fetch(`/api/tasks/${t.id}/planning/poll`).catch(() => {});
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   // --- Task Actions ---
 
   const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean }) => {
