@@ -9,7 +9,7 @@ const ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   planning: ["inbox", "assigned", "done"],
   assigned: ["inbox", "in_progress", "review", "done"],
   in_progress: ["assigned", "testing", "review", "done"],
-  testing: ["assigned", "review", "done"],
+  testing: ["assigned", "in_progress", "review", "done"],
   review: ["assigned", "in_progress", "done"],
   done: ["review"],
 };

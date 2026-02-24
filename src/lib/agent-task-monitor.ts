@@ -4,6 +4,7 @@ import { getTask, addComment, logActivity, listDeliverables } from "./db";
 import { evaluateCompletion, extractDispatchCompletion, extractTextContent } from "./completion-gate";
 import { transitionTaskStatus } from "./task-state";
 import { resolveInternalApiUrl } from "./internal-api";
+import { isOrchestratorEnabled, orchestrateAfterCompletion, orchestrateAfterTesting } from "./orchestrator";
 
 // --- Types ---
 
@@ -318,7 +319,7 @@ class AgentTaskMonitor {
 
     try {
       const task = getTask(monitor.taskId);
-      if (!task || (task.status !== "assigned" && task.status !== "in_progress")) {
+      if (!task || (task.status !== "assigned" && task.status !== "in_progress" && task.status !== "testing")) {
         // Task was moved manually or doesn't exist anymore
         this.stopMonitoring(sessionKey);
         return;
@@ -371,9 +372,9 @@ class AgentTaskMonitor {
   ): Promise<void> {
     const { taskId, agentId, sessionKey } = monitor;
 
-    // Verify task still exists and is active
+    // Verify task still exists and is active (including testing for tester agent)
     const task = getTask(taskId);
-    if (!task || (task.status !== "assigned" && task.status !== "in_progress")) {
+    if (!task || (task.status !== "assigned" && task.status !== "in_progress" && task.status !== "testing")) {
       console.log(
         `[AgentTaskMonitor] Task ${taskId} not in expected state (current: ${task?.status}). Skipping.`
       );
@@ -427,13 +428,73 @@ class AgentTaskMonitor {
 
     const duration = Math.round((Date.now() - monitor.startedAt) / 1000);
 
+    // Determine if this completion is from the tester agent (testing phase)
+    const isTesterCompletion = task.status === "testing";
+
+    // Route through orchestrator if enabled
+    if (isOrchestratorEnabled()) {
+      logActivity({
+        id: uuidv4(),
+        type: isTesterCompletion ? "task_tester_completed" : "task_programmer_completed",
+        task_id: taskId,
+        agent_id: agentId,
+        message: `Agent "${agentId}" completed ${isTesterCompletion ? "testing" : "work"} on "${task.title}" in ${duration}s — routing through orchestrator`,
+        metadata: {
+          duration, sessionKey,
+          dispatchId: task.dispatch_id,
+          payloadDispatchId: extractDispatchCompletion(responseText || "").dispatchId,
+          evidenceTimestamp, completionReason: "accepted", accepted: true,
+          phase: isTesterCompletion ? "testing" : "completion",
+        },
+      });
+
+      addComment({
+        id: uuidv4(),
+        task_id: taskId,
+        author_type: "system",
+        content: `Agent completed ${isTesterCompletion ? "testing" : "work"} in ${duration}s. Orchestrator evaluating...`,
+      });
+
+      // Fire-and-forget: orchestrator handles the transition
+      if (isTesterCompletion) {
+        orchestrateAfterTesting(taskId).catch((err) => {
+          console.error(`[AgentTaskMonitor] orchestrateAfterTesting failed for ${taskId}:`, err);
+          // Fallback: send to review
+          transitionTaskStatus(taskId, "review", {
+            actor: "monitor",
+            reason: "orchestrator_after_testing_fallback",
+            agentId,
+            bypassGuards: true,
+          });
+        });
+      } else {
+        orchestrateAfterCompletion(taskId).catch((err) => {
+          console.error(`[AgentTaskMonitor] orchestrateAfterCompletion failed for ${taskId}:`, err);
+          // Fallback: send to review
+          transitionTaskStatus(taskId, "review", {
+            actor: "monitor",
+            reason: "orchestrator_after_completion_fallback",
+            agentId,
+            bypassGuards: true,
+          });
+        });
+      }
+
+      console.log(
+        `[AgentTaskMonitor] Task ${taskId} routed to orchestrator (${isTesterCompletion ? "after testing" : "after completion"})`
+      );
+      return;
+    }
+
+    // --- Default behavior (no orchestrator) ---
+
     // Check if task has testable deliverables — if so, route through testing
     const deliverables = listDeliverables(taskId);
     const hasTestableDeliverables = deliverables.some(
       (d) => d.deliverable_type === "file" || d.deliverable_type === "url"
     );
 
-    if (hasTestableDeliverables) {
+    if (hasTestableDeliverables && !isTesterCompletion) {
       // Route through automated testing before review
       transitionTaskStatus(taskId, "testing", {
         actor: "monitor",
@@ -476,10 +537,10 @@ class AgentTaskMonitor {
         `[AgentTaskMonitor] Task ${taskId} moved to TESTING (completion gate accepted, deliverables found)`
       );
     } else {
-      // No deliverables — go straight to review (backward compatible)
+      // No deliverables or tester completed — go straight to review (backward compatible)
       transitionTaskStatus(taskId, "review", {
         actor: "monitor",
-        reason: "completion_gate_accepted",
+        reason: isTesterCompletion ? "tester_completion_gate_accepted" : "completion_gate_accepted",
         agentId,
         metadata: { sessionKey, dispatchId: task.dispatch_id },
       });
@@ -489,7 +550,7 @@ class AgentTaskMonitor {
         type: "task_review",
         task_id: taskId,
         agent_id: agentId,
-        message: `Agent "${agentId}" completed work on "${task.title}" in ${duration}s — moved to review`,
+        message: `Agent "${agentId}" completed ${isTesterCompletion ? "testing" : "work"} on "${task.title}" in ${duration}s — moved to review`,
         metadata: {
           duration, sessionKey,
           dispatchId: task.dispatch_id,

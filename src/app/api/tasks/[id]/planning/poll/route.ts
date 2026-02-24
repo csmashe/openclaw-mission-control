@@ -4,6 +4,7 @@ import { extractJSON, getMessagesFromOpenClaw } from "@/lib/planning-utils";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { broadcast } from "@/lib/events";
 import { resolveInternalApiUrl } from "@/lib/internal-api";
+import { isOrchestratorEnabled, orchestrateAfterPlanning } from "@/lib/orchestrator";
 
 // GET - Poll for planning updates
 export async function GET(
@@ -81,28 +82,41 @@ export async function GET(
         } as Record<string, unknown>),
       } as Parameters<typeof updateTask>[1]);
 
-      // Auto-dispatch if task has an assigned agent
+      // Auto-dispatch: route through orchestrator if enabled, else direct dispatch
       const freshTask = getTask(taskId);
       if (freshTask?.assigned_agent_id) {
-        try {
-          const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              taskId,
-              agentId: freshTask.assigned_agent_id,
-            }),
+        if (isOrchestratorEnabled()) {
+          // Fire-and-forget: orchestrator will evaluate spec and dispatch
+          orchestrateAfterPlanning(taskId).catch((err) => {
+            console.error(`[Planning Poll] Orchestrator post-planning failed for ${taskId}:`, err);
+            // Fallback: direct dispatch
+            fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ taskId, agentId: freshTask.assigned_agent_id }),
+            }).catch(() => {});
           });
-          if (!dispatchRes.ok) {
-            const err = await dispatchRes.json().catch(() => ({}));
+        } else {
+          try {
+            const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                taskId,
+                agentId: freshTask.assigned_agent_id,
+              }),
+            });
+            if (!dispatchRes.ok) {
+              const err = await dispatchRes.json().catch(() => ({}));
+              updateTask(taskId, {
+                ...({ planning_dispatch_error: err.error || "Dispatch failed" } as Record<string, unknown>),
+              } as Parameters<typeof updateTask>[1]);
+            }
+          } catch (dispatchErr) {
             updateTask(taskId, {
-              ...({ planning_dispatch_error: err.error || "Dispatch failed" } as Record<string, unknown>),
+              ...({ planning_dispatch_error: String(dispatchErr) } as Record<string, unknown>),
             } as Parameters<typeof updateTask>[1]);
           }
-        } catch (dispatchErr) {
-          updateTask(taskId, {
-            ...({ planning_dispatch_error: String(dispatchErr) } as Record<string, unknown>),
-          } as Parameters<typeof updateTask>[1]);
         }
       } else {
         // Move to inbox for manual dispatch

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/db";
 import { resolveInternalApiUrl } from "@/lib/internal-api";
+import { isOrchestratorEnabled, orchestrateAfterPlanning } from "@/lib/orchestrator";
 
 // POST - Approve spec and trigger dispatch
 export async function POST(
@@ -25,6 +26,14 @@ export async function POST(
   }
 
   try {
+    if (isOrchestratorEnabled()) {
+      // Route through orchestrator for spec evaluation + dispatch
+      orchestrateAfterPlanning(taskId).catch((err) => {
+        console.error(`[Planning Approve] Orchestrator post-planning failed for ${taskId}:`, err);
+      });
+      return NextResponse.json({ ok: true, message: "Task sent to orchestrator for evaluation" });
+    }
+
     const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

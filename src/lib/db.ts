@@ -208,6 +208,9 @@ export interface Task {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  orchestrator_session_key: string | null;
+  tester_session_key: string | null;
+  rework_count: number;
 }
 
 export function listTasks(filters?: {
@@ -288,6 +291,9 @@ export function updateTask(
     dispatch_started_at: string | null;
     dispatch_message_count_start: number;
     sort_order: number;
+    orchestrator_session_key: string | null;
+    tester_session_key: string | null;
+    rework_count: number;
   }>
 ): Task | undefined {
   const fields: string[] = [];
@@ -529,4 +535,42 @@ export function updateSession(id: string, patch: Partial<{ status: string; ended
   values.push(id);
   getDb().prepare(`UPDATE openclaw_sessions SET ${fields.join(", ")} WHERE id = ?`).run(...values);
   return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(id) as OpenClawSession | undefined;
+}
+
+// --- Workflow Settings ---
+
+export interface WorkflowSettings {
+  orchestrator_agent_id: string | null;
+  planner_agent_id: string | null;
+  tester_agent_id: string | null;
+  max_rework_cycles: number;
+}
+
+const WORKFLOW_SETTINGS_DEFAULTS: WorkflowSettings = {
+  orchestrator_agent_id: null,
+  planner_agent_id: null,
+  tester_agent_id: null,
+  max_rework_cycles: 3,
+};
+
+export function getWorkflowSettings(): WorkflowSettings {
+  const db = getDb();
+  const rows = db.prepare("SELECT key, value FROM workflow_settings").all() as { key: string; value: string }[];
+  const settings = { ...WORKFLOW_SETTINGS_DEFAULTS };
+  for (const row of rows) {
+    if (row.key === "max_rework_cycles") {
+      settings.max_rework_cycles = parseInt(row.value, 10) || WORKFLOW_SETTINGS_DEFAULTS.max_rework_cycles;
+    } else if (row.key in settings) {
+      (settings as Record<string, unknown>)[row.key] = row.value || null;
+    }
+  }
+  return settings;
+}
+
+export function setWorkflowSetting(key: string, value: string): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO workflow_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).run(key, value);
 }

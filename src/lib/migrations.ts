@@ -84,6 +84,19 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_id);
     `,
   },
+  {
+    id: "005_workflow_settings",
+    sql: `
+      CREATE TABLE IF NOT EXISTS workflow_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      ALTER TABLE tasks ADD COLUMN orchestrator_session_key TEXT;
+      ALTER TABLE tasks ADD COLUMN tester_session_key TEXT;
+      ALTER TABLE tasks ADD COLUMN rework_count INTEGER DEFAULT 0;
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTask, updateTask } from "@/lib/db";
+import { getTask, updateTask, getWorkflowSettings } from "@/lib/db";
 import { getOpenClawClient } from "@/lib/openclaw-client";
 import { transitionTaskStatus } from "@/lib/task-state";
 import { broadcast } from "@/lib/events";
@@ -71,7 +71,9 @@ export async function POST(
     return NextResponse.json({ error: "Planning already started" }, { status: 409 });
   }
 
-  const sessionKey = `agent:main:planning:${taskId}`;
+  const settings = getWorkflowSettings();
+  const plannerAgent = settings.planner_agent_id || "main";
+  const sessionKey = `agent:${plannerAgent}:planning:${taskId}`;
   const prompt = `You are a planning orchestrator. Your job is to ask clarifying questions about this task and then produce a detailed specification.
 
 ## Task
