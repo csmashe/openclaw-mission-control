@@ -32,7 +32,7 @@ export async function POST(
 
   const prompt = `User selected: "${answerText}"
 
-Continue with the next question in JSON format, or if all questions have been asked, respond with the completion JSON containing the spec.`;
+If you now have enough clarity, produce the spec immediately. Only ask another question if something critical is still genuinely ambiguous.`;
 
   try {
     const client = getOpenClawClient();
