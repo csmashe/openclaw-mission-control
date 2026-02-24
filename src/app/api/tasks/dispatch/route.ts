@@ -342,6 +342,10 @@ Body: { "openclaw_session_id": "...", "agent_name": "..." }
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
 
+Files changed:
+- path/to/file1.ts (created|modified|deleted)
+- path/to/file2.tsx (created|modified|deleted)
+
 Please complete this task. Provide a clear, actionable response with your findings or deliverables. Be concise but thorough.`;
 }
 
@@ -390,6 +394,10 @@ ${feedback}
 
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
+
+Files changed:
+- path/to/file1.ts (created|modified|deleted)
+- path/to/file2.tsx (created|modified|deleted)
 
 Please address the feedback above and provide an updated response. Consider all previous discussion context.`;
 }

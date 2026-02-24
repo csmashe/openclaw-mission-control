@@ -44,9 +44,10 @@ interface PlanningState {
 interface PlanningTabProps {
   taskId: string;
   onSpecLocked?: () => void;
+  onClose?: () => void;
 }
 
-export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
+export function PlanningTab({ taskId, onSpecLocked, onClose }: PlanningTabProps) {
   const [state, setState] = useState<PlanningState | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -367,13 +368,13 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
       const data = await res.json();
 
       if (res.ok) {
-        await loadState();
+        if (onClose) onClose();
       } else {
         setError(`Approve failed: ${data.error}`);
+        setApprovingSpec(false);
       }
     } catch {
       setError("Failed to approve spec");
-    } finally {
       setApprovingSpec(false);
     }
   };

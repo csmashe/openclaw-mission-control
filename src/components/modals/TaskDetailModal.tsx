@@ -36,31 +36,44 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   const [reworking, setReworking] = useState(false);
   const [prevStatus, setPrevStatus] = useState(task.status);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastCommentIdRef = useRef<string | null>(null);
+  const userScrolledUpRef = useRef(false);
+  const isProgrammaticScrollRef = useRef(false);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
 
   const fetchComments = useCallback(async () => {
     try {
       const res = await fetch(`/api/tasks/comments?taskId=${task.id}`);
       const data = await res.json();
-      setComments(data.comments || []);
+      const fetched: TaskComment[] = data.comments || [];
+      const lastId = fetched.length > 0 ? fetched[fetched.length - 1].id : null;
+      if (lastId !== lastCommentIdRef.current) {
+        lastCommentIdRef.current = lastId;
+        setComments(fetched);
+      }
     } catch {} // retry on next interval
   }, [task.id]);
 
   useEffect(() => {
     setLoading(true);
+    lastCommentIdRef.current = null;
     setComments([]);
     fetchComments().finally(() => setLoading(false));
 
     const interval = setInterval(async () => {
       await fetchComments();
-      await onRefresh(); // Also refresh task status
+      await onRefreshRef.current();
     }, 3000);
     return () => clearInterval(interval);
-  }, [task.id, fetchComments, onRefresh]);
+  }, [task.id, fetchComments]);
 
-  // Auto-scroll when new comments arrive
+  // Auto-scroll only when new comments arrive AND user hasn't scrolled up
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !userScrolledUpRef.current) {
+      isProgrammaticScrollRef.current = true;
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      requestAnimationFrame(() => { isProgrammaticScrollRef.current = false; });
     }
   }, [comments.length]);
 
@@ -213,7 +226,7 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
         <div className="flex-1 min-h-0 max-h-[46vh] flex flex-col gap-2 overflow-hidden">
           {activeTab === "planning" ? (
             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-              <PlanningTab taskId={task.id} onSpecLocked={onRefresh} />
+              <PlanningTab taskId={task.id} onSpecLocked={onRefresh} onClose={onClose} />
             </div>
           ) : activeTab === "subagents" ? (
             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -232,7 +245,17 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
                   No activity yet. Assign an agent to start working on this task.
                 </div>
               ) : (
-                <div className="h-full overflow-y-scroll pr-3" ref={scrollRef}>
+                <div
+                  className="h-full overflow-y-scroll pr-3"
+                  ref={scrollRef}
+                  onScroll={() => {
+                    if (isProgrammaticScrollRef.current) return;
+                    const el = scrollRef.current;
+                    if (!el) return;
+                    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                    userScrolledUpRef.current = !nearBottom;
+                  }}
+                >
                   <div className="space-y-2">
                     {comments.map((c) => (
                       <div

@@ -220,6 +220,15 @@ class AgentTaskMonitor {
     clearTimeout(monitor.ackTimeoutTimer);
     monitor.ackTimeoutTimer = undefined;
 
+    // Don't move "testing" tasks to "in_progress" — tester activity should keep the task in testing
+    const task = getTask(monitor.taskId);
+    if (task?.status === "testing") {
+      console.log(
+        `[AgentTaskMonitor] First tester activity acked for task ${monitor.taskId} via ${source} (staying in testing)`
+      );
+      return;
+    }
+
     transitionTaskStatus(monitor.taskId, "in_progress", {
       actor: "monitor",
       reason: "first_agent_activity_ack",
