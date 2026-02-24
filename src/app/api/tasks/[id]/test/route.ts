@@ -78,6 +78,20 @@ function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
 }
 
+function resolveDeliverablePath(inputPath: string): string {
+  if (!inputPath) return inputPath;
+  if (path.isAbsolute(inputPath)) return inputPath;
+
+  const candidates = [
+    path.resolve(process.cwd(), inputPath),
+    ...(process.env.OPENCLAW_WORKSPACE ? [path.resolve(process.env.OPENCLAW_WORKSPACE, inputPath)] : []),
+    ...(process.env.HOME ? [path.resolve(process.env.HOME, ".openclaw", "workspace", inputPath)] : []),
+  ];
+
+  const found = candidates.find((p) => existsSync(p));
+  return found || candidates[0];
+}
+
 /**
  * Test a single deliverable using Playwright
  */
@@ -95,10 +109,11 @@ async function testDeliverableWithBrowser(
 
   const isUrlDeliverable = deliverable.deliverable_type === "url";
   const testPath = deliverable.path || "";
+  const resolvedPath = resolveDeliverablePath(testPath);
 
   try {
     if (!isUrlDeliverable) {
-      if (!testPath || !existsSync(testPath)) {
+      if (!testPath || !existsSync(resolvedPath)) {
         return {
           passed: false,
           deliverable: { id: deliverable.id, title: deliverable.title, path: testPath || "unknown", type: "file" },
@@ -117,7 +132,7 @@ async function testDeliverableWithBrowser(
         };
       }
 
-      const htmlContent = readFileSync(testPath, "utf-8");
+      const htmlContent = readFileSync(resolvedPath, "utf-8");
       cssErrors = extractAndValidateCss(htmlContent);
     }
 
@@ -126,7 +141,7 @@ async function testDeliverableWithBrowser(
       if (isHttpUrl(testPath)) {
         testUrl = testPath;
       } else {
-        if (!existsSync(testPath)) {
+        if (!existsSync(resolvedPath)) {
           return {
             passed: false,
             deliverable: { id: deliverable.id, title: deliverable.title, path: testPath, type: "url" },
@@ -135,10 +150,10 @@ async function testDeliverableWithBrowser(
             duration: Date.now() - startTime, error: "Path not found",
           };
         }
-        testUrl = `file://${testPath}`;
+        testUrl = `file://${resolvedPath}`;
       }
     } else {
-      testUrl = `file://${testPath}`;
+      testUrl = `file://${resolvedPath}`;
     }
 
     const context = await browser.newContext();
@@ -206,6 +221,7 @@ async function testDeliverableWithBrowser(
 async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise<TestResult> {
   const startTime = Date.now();
   const testPath = deliverable.path || "";
+  const resolvedPath = resolveDeliverablePath(testPath);
   const isUrlDeliverable = deliverable.deliverable_type === "url";
   const consoleErrors: string[] = [];
   let cssErrors: CssValidationError[] = [];
@@ -222,7 +238,7 @@ async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise
       consoleErrors.push(`HTTP request failed: ${err}`);
     }
   } else {
-    if (!testPath || !existsSync(testPath)) {
+    if (!testPath || !existsSync(resolvedPath)) {
       return {
         passed: false,
         deliverable: { id: deliverable.id, title: deliverable.title, path: testPath || "unknown", type: isUrlDeliverable ? "url" : "file" },
@@ -233,7 +249,7 @@ async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise
     }
 
     if (testPath.endsWith(".html") || testPath.endsWith(".htm")) {
-      const htmlContent = readFileSync(testPath, "utf-8");
+      const htmlContent = readFileSync(resolvedPath, "utf-8");
       cssErrors = extractAndValidateCss(htmlContent);
       if (htmlContent.trim().length < 10) {
         consoleErrors.push("File appears empty or too short");

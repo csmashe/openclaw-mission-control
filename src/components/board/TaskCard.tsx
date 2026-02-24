@@ -135,8 +135,20 @@ export function TaskCard({
             <span className="text-[10px] font-mono text-green-600/70">{timeAgo(task.updated_at)}</span>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="opacity-0 group-hover:opacity-100 ml-1 text-muted-foreground hover:text-destructive transition-all"
+            type="button"
+            draggable={false}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="opacity-70 group-hover:opacity-100 ml-1 text-muted-foreground hover:text-destructive transition-all"
+            aria-label="Delete task"
+            title="Delete task"
           >
             <Trash2 className="w-3 h-3" />
           </button>
