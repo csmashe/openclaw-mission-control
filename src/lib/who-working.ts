@@ -560,10 +560,6 @@ function deriveSessionKeyTitle(sessionKey: string | null): { title: string | nul
       return { title: `Planning run (${agent})`, context: sessionKey };
     }
 
-    if (mode === "subagent") {
-      return { title: `Subagent run (${agent})`, context: sessionKey };
-    }
-
     if (mode === "telegram") {
       return { title: `Telegram trigger (${agent})`, context: sessionKey };
     }

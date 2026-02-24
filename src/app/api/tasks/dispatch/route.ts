@@ -14,6 +14,7 @@ import type { ChatMessage } from "@/lib/openclaw-client";
 import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
 import { shouldDedupeDispatch } from "@/lib/task-runtime-truth";
 import { broadcast } from "@/lib/events";
+import { resolveInternalApiUrl } from "@/lib/internal-api";
 
 function getSessionOwnerAgent(sessionKey: string | null | undefined): string | null {
   if (!sessionKey) return null;
@@ -315,6 +316,8 @@ function buildTaskPrompt(task: {
   description: string;
   priority: string;
 }, taskId: string, dispatchId: string): string {
+  const deliverablesUrl = resolveInternalApiUrl(`/api/tasks/${taskId}/deliverables`);
+
   return `## Task Assignment
 
 **Title:** ${task.title}
@@ -331,13 +334,11 @@ ${task.description || "No additional details provided."}
 
 **Dispatch ID:** ${dispatchId}
 
-**Registering deliverables:** When you produce output files, URLs, or artifacts, register them via:
-POST /api/tasks/${taskId}/deliverables
-Body: { "title": "...", "deliverable_type": "file"|"url"|"artifact", "path": "...", "description": "..." }
+**IMPORTANT:** After completing work, register your deliverables:
+POST ${deliverablesUrl}
+Body: {"deliverable_type": "file", "title": "filename.ts", "path": "src/path/to/file.ts"}
 
-**Spawning sub-agents:** If you need to delegate subtasks, register sub-agent sessions via:
-POST /api/tasks/${taskId}/subagent
-Body: { "openclaw_session_id": "...", "agent_name": "..." }
+Supported deliverable_type values: "file", "url", "artifact". Register one deliverable per file changed.
 
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
@@ -345,6 +346,8 @@ TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
 Files changed:
 - path/to/file1.ts (created|modified|deleted)
 - path/to/file2.tsx (created|modified|deleted)
+
+Register each file above as a deliverable via the API endpoint above, then output the TASK_COMPLETE block.
 
 Please complete this task. Provide a clear, actionable response with your findings or deliverables. Be concise but thorough.`;
 }
@@ -355,6 +358,8 @@ function buildReworkPrompt(
   taskId: string,
   dispatchId: string
 ): string {
+  const deliverablesUrl = resolveInternalApiUrl(`/api/tasks/${taskId}/deliverables`);
+
   // Get previous comments for context
   const comments = listComments(taskId);
   const commentHistory = comments
@@ -392,12 +397,20 @@ ${feedback}
 
 **Dispatch ID:** ${dispatchId}
 
+**IMPORTANT:** After completing work, register your deliverables:
+POST ${deliverablesUrl}
+Body: {"deliverable_type": "file", "title": "filename.ts", "path": "src/path/to/file.ts"}
+
+Supported deliverable_type values: "file", "url", "artifact". Register one deliverable per file changed.
+
 When complete, respond exactly with:
 TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary>
 
 Files changed:
 - path/to/file1.ts (created|modified|deleted)
 - path/to/file2.tsx (created|modified|deleted)
+
+Register each file above as a deliverable via the API endpoint above, then output the TASK_COMPLETE block.
 
 Please address the feedback above and provide an updated response. Consider all previous discussion context.`;
 }

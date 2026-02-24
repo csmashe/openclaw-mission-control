@@ -103,6 +103,27 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE tasks ADD COLUMN planning_question_waiting INTEGER DEFAULT 0;
     `,
   },
+  {
+    id: "007_remove_subagent_sessions",
+    sql: `
+      DELETE FROM openclaw_sessions WHERE session_type = 'subagent';
+      CREATE TABLE IF NOT EXISTS openclaw_sessions_new (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT,
+        openclaw_session_id TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        session_type TEXT DEFAULT 'persistent' CHECK(session_type IN ('persistent')),
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        ended_at TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO openclaw_sessions_new SELECT * FROM openclaw_sessions;
+      DROP TABLE openclaw_sessions;
+      ALTER TABLE openclaw_sessions_new RENAME TO openclaw_sessions;
+      CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_id);
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

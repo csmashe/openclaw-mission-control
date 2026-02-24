@@ -16,7 +16,6 @@ import { getPriorityStyle, timeAgo } from "@/lib/helpers";
 import type { Task, TaskComment } from "@/lib/types";
 import { DeliverablesList } from "@/components/DeliverablesList";
 import { PlanningTab } from "@/components/board/PlanningTab";
-import { SubAgentsList } from "@/components/SubAgentsList";
 
 export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   task: Task;
@@ -30,7 +29,7 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
   const [sendingComment, setSendingComment] = useState(false);
   const [reworkFeedback, setReworkFeedback] = useState("");
   const [showRework, setShowRework] = useState(false);
-  const [activeTab, setActiveTab] = useState<"activity" | "deliverables" | "planning" | "subagents">(
+  const [activeTab, setActiveTab] = useState<"activity" | "deliverables" | "planning">(
     task.status === "planning" ? "planning" : "activity"
   );
   const [reworking, setReworking] = useState(false);
@@ -210,16 +209,6 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
           >
             Deliverables
           </button>
-          <button
-            onClick={() => setActiveTab("subagents")}
-            className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "subagents"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Sub-Agents
-          </button>
         </div>
 
         {/* Tab Content */}
@@ -227,10 +216,6 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
           {activeTab === "planning" ? (
             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
               <PlanningTab taskId={task.id} onSpecLocked={onRefresh} onClose={onClose} />
-            </div>
-          ) : activeTab === "subagents" ? (
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-              <SubAgentsList taskId={task.id} />
             </div>
           ) : activeTab === "deliverables" ? (
             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
