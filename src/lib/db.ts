@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
+import { broadcast } from "@/lib/events";
+import { runMigrations } from "@/lib/migrations";
 
 // Use globalThis to ensure a true singleton across Next.js module boundaries.
 // Turbopack/webpack may re-instantiate module-level variables for different API routes.
@@ -7,13 +10,31 @@ const globalForDb = globalThis as typeof globalThis & {
   __missionControlDb?: Database.Database;
 };
 
+const DEFAULT_DB_PATH = "/home/csmashe/.openclaw/mission-control/data/mission-control.db";
+
+function resolveDbPath(): string {
+  const configuredPath = process.env.MISSION_CONTROL_DB_PATH?.trim();
+
+  if (!configuredPath) {
+    return DEFAULT_DB_PATH;
+  }
+
+  if (path.isAbsolute(configuredPath)) {
+    return path.normalize(configuredPath);
+  }
+
+  // Avoid standalone/runtime cwd differences by anchoring relative overrides
+  // to the canonical data directory rather than process.cwd().
+  const canonicalDataDir = path.dirname(DEFAULT_DB_PATH);
+  return path.resolve(canonicalDataDir, configuredPath);
+}
+
 export function getDb(): Database.Database {
   if (globalForDb.__missionControlDb) return globalForDb.__missionControlDb;
 
-  const dbPath = path.resolve(process.cwd(), "data", "mission-control.db");
+  const dbPath = resolveDbPath();
 
   // Ensure data directory exists
-  const fs = require("fs");
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -24,6 +45,7 @@ export function getDb(): Database.Database {
   db.pragma("foreign_keys = ON");
 
   initializeSchema(db);
+  runMigrations(db);
   globalForDb.__missionControlDb = db;
   return db;
 }
@@ -43,7 +65,7 @@ function initializeSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT DEFAULT '',
-      status TEXT DEFAULT 'inbox' CHECK(status IN ('inbox', 'assigned', 'in_progress', 'review', 'done')),
+      status TEXT DEFAULT 'inbox' CHECK(status IN ('inbox', 'planning', 'assigned', 'in_progress', 'testing', 'review', 'done')),
       priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
       mission_id TEXT,
       assigned_agent_id TEXT,
@@ -51,6 +73,16 @@ function initializeSchema(db: Database.Database): void {
       sort_order INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
+      gateway_id TEXT,
+      dispatch_id TEXT,
+      dispatch_started_at TEXT,
+      dispatch_message_count_start INTEGER DEFAULT 0,
+      planning_session_key TEXT,
+      planning_messages TEXT DEFAULT '[]',
+      planning_complete INTEGER DEFAULT 0,
+      planning_spec TEXT,
+      planning_agents TEXT,
+      planning_dispatch_error TEXT,
       FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE SET NULL
     );
 
@@ -82,6 +114,7 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(type);
   `);
+
 }
 
 // --- Missions ---
@@ -166,9 +199,23 @@ export interface Task {
   mission_id: string | null;
   assigned_agent_id: string | null;
   openclaw_session_key: string | null;
+  dispatch_id: string | null;
+  dispatch_started_at: string | null;
+  dispatch_message_count_start: number;
   sort_order: number;
   created_at: string;
   updated_at: string;
+  orchestrator_session_key: string | null;
+  tester_session_key: string | null;
+  rework_count: number;
+  planning_session_key: string | null;
+  planning_messages: string;
+  planning_complete: number;
+  planning_spec: string | null;
+  planning_agents: string | null;
+  planning_dispatch_error: string | null;
+  planning_question_waiting: number;
+  planning_auto_approve: number;
 }
 
 export function listTasks(filters?: {
@@ -245,7 +292,21 @@ export function updateTask(
     mission_id: string | null;
     assigned_agent_id: string | null;
     openclaw_session_key: string | null;
+    dispatch_id: string | null;
+    dispatch_started_at: string | null;
+    dispatch_message_count_start: number;
     sort_order: number;
+    orchestrator_session_key: string | null;
+    tester_session_key: string | null;
+    rework_count: number;
+    planning_session_key: string | null;
+    planning_messages: string;
+    planning_complete: number;
+    planning_spec: string | null;
+    planning_agents: string | null;
+    planning_dispatch_error: string | null;
+    planning_question_waiting: number;
+    planning_auto_approve: number;
   }>
 ): Task | undefined {
   const fields: string[] = [];
@@ -352,7 +413,29 @@ export function logActivity(data: {
       data.message,
       JSON.stringify(data.metadata ?? {})
     );
+
+  broadcast({
+    type: "activity_logged",
+    payload: {
+      id: data.id,
+      type: data.type,
+      agent_id: data.agent_id ?? null,
+      task_id: data.task_id ?? null,
+      mission_id: data.mission_id ?? null,
+      message: data.message,
+      metadata: JSON.stringify(data.metadata ?? {}),
+      created_at: new Date().toISOString(),
+    },
+  });
 }
+
+// --- Transaction helper ---
+
+export function transaction<T>(fn: () => T): T {
+  return getDb().transaction(fn)();
+}
+
+// --- Activity queries ---
 
 export function listActivity(opts?: {
   limit?: number;
@@ -370,4 +453,157 @@ export function listActivity(opts?: {
   params.push(opts?.limit ?? 50);
 
   return getDb().prepare(sql).all(...params) as ActivityEntry[];
+}
+
+// --- Deliverables ---
+
+export interface TaskDeliverable {
+  id: string;
+  task_id: string;
+  deliverable_type: string;
+  title: string;
+  path: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export function listDeliverables(taskId: string): TaskDeliverable[] {
+  return getDb()
+    .prepare("SELECT * FROM task_deliverables WHERE task_id = ? ORDER BY created_at ASC")
+    .all(taskId) as TaskDeliverable[];
+}
+
+export function addDeliverable(data: {
+  id: string;
+  task_id: string;
+  deliverable_type: string;
+  title: string;
+  path?: string;
+  description?: string;
+}): TaskDeliverable {
+  getDb()
+    .prepare(
+      `INSERT INTO task_deliverables (id, task_id, deliverable_type, title, path, description)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(data.id, data.task_id, data.deliverable_type, data.title, data.path ?? null, data.description ?? null);
+  return getDb().prepare("SELECT * FROM task_deliverables WHERE id = ?").get(data.id) as TaskDeliverable;
+}
+
+export function deleteDeliverable(id: string): void {
+  getDb().prepare("DELETE FROM task_deliverables WHERE id = ?").run(id);
+}
+
+// --- OpenClaw Sessions ---
+
+export interface OpenClawSession {
+  id: string;
+  agent_id: string | null;
+  openclaw_session_id: string;
+  status: string;
+  session_type: string;
+  task_id: string | null;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listSessions(taskId?: string): OpenClawSession[] {
+  if (taskId) {
+    return getDb()
+      .prepare("SELECT * FROM openclaw_sessions WHERE task_id = ? ORDER BY created_at DESC")
+      .all(taskId) as OpenClawSession[];
+  }
+  return getDb()
+    .prepare("SELECT * FROM openclaw_sessions ORDER BY created_at DESC")
+    .all() as OpenClawSession[];
+}
+
+export function createSession(data: {
+  id: string;
+  agent_id?: string;
+  openclaw_session_id: string;
+  session_type?: string;
+  task_id?: string;
+}): OpenClawSession {
+  getDb()
+    .prepare(
+      `INSERT INTO openclaw_sessions (id, agent_id, openclaw_session_id, session_type, task_id)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(data.id, data.agent_id ?? null, data.openclaw_session_id, data.session_type ?? "persistent", data.task_id ?? null);
+  return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(data.id) as OpenClawSession;
+}
+
+export function updateSession(id: string, patch: Partial<{ status: string; ended_at: string }>): OpenClawSession | undefined {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (patch.status !== undefined) { fields.push("status = ?"); values.push(patch.status); }
+  if (patch.ended_at !== undefined) { fields.push("ended_at = ?"); values.push(patch.ended_at); }
+
+  if (fields.length === 0) return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(id) as OpenClawSession | undefined;
+
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+  getDb().prepare(`UPDATE openclaw_sessions SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  return getDb().prepare("SELECT * FROM openclaw_sessions WHERE id = ?").get(id) as OpenClawSession | undefined;
+}
+
+// --- Workflow Settings ---
+
+export interface WorkflowSettings {
+  orchestrator_agent_id: string | null;
+  planner_agent_id: string | null;
+  tester_agent_id: string | null;
+  max_rework_cycles: number;
+}
+
+const WORKFLOW_SETTINGS_DEFAULTS: WorkflowSettings = {
+  orchestrator_agent_id: null,
+  planner_agent_id: null,
+  tester_agent_id: null,
+  max_rework_cycles: 3,
+};
+
+export function getWorkflowSettings(): WorkflowSettings {
+  const db = getDb();
+  const rows = db.prepare("SELECT key, value FROM workflow_settings").all() as { key: string; value: string }[];
+  const settings = { ...WORKFLOW_SETTINGS_DEFAULTS };
+  for (const row of rows) {
+    if (row.key === "max_rework_cycles") {
+      const parsed = parseInt(row.value, 10);
+      settings.max_rework_cycles = Number.isNaN(parsed) ? WORKFLOW_SETTINGS_DEFAULTS.max_rework_cycles : parsed;
+    } else if (Object.hasOwn(settings, row.key)) {
+      (settings as Record<string, unknown>)[row.key] = row.value || null;
+    }
+  }
+  return settings;
+}
+
+/**
+ * Atomically claim planning completion for a task.
+ * Returns true if this caller won the claim (planning_complete was 0 → 1).
+ * Returns false if another caller already claimed it.
+ */
+export function claimPlanningCompletion(
+  taskId: string,
+  spec: string,
+  messages: string
+): boolean {
+  const result = getDb()
+    .prepare(
+      `UPDATE tasks SET planning_complete = 1, planning_spec = ?, planning_messages = ?, planning_question_waiting = 0, updated_at = datetime('now')
+       WHERE id = ? AND planning_complete = 0`
+    )
+    .run(spec, messages, taskId);
+  return result.changes > 0;
+}
+
+export function setWorkflowSetting(key: keyof WorkflowSettings, value: string): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO workflow_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).run(key, value);
 }

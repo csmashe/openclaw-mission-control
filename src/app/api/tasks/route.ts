@@ -8,6 +8,8 @@ import {
   deleteTask,
   logActivity,
 } from "@/lib/db";
+import { transitionTaskStatus, type TaskStatus } from "@/lib/task-state";
+import { broadcast } from "@/lib/events";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -45,6 +47,8 @@ export async function POST(request: NextRequest) {
     message: `Task "${task.title}" created`,
   });
 
+  broadcast({ type: "task_created", payload: task });
+
   return NextResponse.json({ task }, { status: 201 });
 }
 
@@ -61,17 +65,41 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
   }
 
-  const task = updateTask(id, patch);
+  const statusPatch = patch.status as TaskStatus | undefined;
+  const restPatch = { ...patch };
+  delete (restPatch as { status?: unknown }).status;
 
-  if (patch.status && patch.status !== existing.status) {
-    logActivity({
-      id: uuidv4(),
-      type: "task_status_changed",
-      task_id: id,
-      agent_id: patch.assigned_agent_id ?? existing.assigned_agent_id ?? undefined,
-      message: `Task "${existing.title}" moved from ${existing.status} to ${patch.status}`,
-      metadata: { from: existing.status, to: patch.status },
+  let task;
+  if (statusPatch && statusPatch !== existing.status) {
+    const transition = transitionTaskStatus(id, statusPatch, {
+      actor: "api",
+      reason: "manual_board_patch",
+      agentId: patch.assigned_agent_id ?? existing.assigned_agent_id ?? undefined,
+      metadata: {
+        source: "tasks.patch",
+      },
+      patch: restPatch,
     });
+
+    if (!transition.ok) {
+      return NextResponse.json(
+        {
+          error: "Invalid status transition",
+          from: existing.status,
+          to: statusPatch,
+          blockedReason: transition.blockedReason,
+        },
+        { status: 409 }
+      );
+    }
+
+    task = transition.task;
+  } else {
+    task = updateTask(id, restPatch);
+  }
+
+  if (task) {
+    broadcast({ type: "task_updated", payload: task });
   }
 
   return NextResponse.json({ task });
@@ -98,6 +126,8 @@ export async function DELETE(request: NextRequest) {
     task_id: id,
     message: `Task "${existing.title}" deleted`,
   });
+
+  broadcast({ type: "task_deleted", payload: { taskId: id } });
 
   return NextResponse.json({ ok: true });
 }

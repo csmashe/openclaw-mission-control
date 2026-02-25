@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/e2e-output
 
 # next.js
 /.next/
@@ -43,6 +44,10 @@ next-env.d.ts
 # local env
 .env.local
 .env*.local
+
+# plugins — ignore user-installed plugins, keep the hello-world example
+plugins/*
+!plugins/hello-world/
 
 # database
 data/

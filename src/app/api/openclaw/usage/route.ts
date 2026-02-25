@@ -6,18 +6,20 @@ export async function GET() {
     const client = getOpenClawClient();
     await client.connect();
 
-    const [usage, cost] = await Promise.allSettled([
+    const [usage, cost, sessions] = await Promise.allSettled([
       client.getUsage(),
       client.getUsageCost(),
+      client.listSessions(),
     ]);
 
     return NextResponse.json({
       usage: usage.status === "fulfilled" ? usage.value : null,
       cost: cost.status === "fulfilled" ? cost.value : null,
+      sessions: sessions.status === "fulfilled" ? sessions.value : null,
     });
   } catch (error) {
     return NextResponse.json(
-      { error: String(error), usage: null, cost: null },
+      { error: String(error), usage: null, cost: null, sessions: null },
       { status: 500 }
     );
   }

@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { OpenClawClient } from "@/lib/openclaw-client";
+import { getOpenClawClient } from "@/lib/openclaw-client";
 
 const DEFAULT_SESSION_KEY = "mission-control:general-chat";
-
-function getClient() {
-  return new OpenClawClient(
-    process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789",
-    { authToken: process.env.OPENCLAW_AUTH_TOKEN || "" }
-  );
-}
 
 /**
  * GET /api/chat — fetch chat history for a session
@@ -19,7 +12,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50", 10);
 
   try {
-    const client = getClient();
+    const client = getOpenClawClient();
     const messages = await client.getChatHistory(sessionKey, { limit });
     return NextResponse.json({ messages, sessionKey });
   } catch (err: unknown) {
@@ -47,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sessionKey = customSessionKey || DEFAULT_SESSION_KEY;
-    const client = getClient();
+    const client = getOpenClawClient();
 
     // Send the message
     await client.sendMessage(sessionKey, message.trim());

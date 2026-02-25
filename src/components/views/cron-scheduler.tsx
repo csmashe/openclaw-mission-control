@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Clock,
   Plus,
@@ -37,17 +37,32 @@ interface ScheduleObject {
   kind?: string;
   everyMs?: number;
   cron?: string;
+  expr?: string;
   anchorMs?: number;
+}
+
+interface CronPayload {
+  kind?: string;
+  message?: string;
+  text?: string;
+}
+
+interface CronJobState {
+  lastRunAtMs?: number;
+  nextRunAtMs?: number;
 }
 
 interface CronJob {
   id: string;
+  name?: string;
   prompt?: string;
+  payload?: CronPayload;
   schedule: string | ScheduleObject;
   enabled: boolean;
   agentId?: string;
   lastRun?: string;
   nextRun?: string;
+  state?: CronJobState;
 }
 
 // Human-friendly schedule presets
@@ -76,8 +91,8 @@ function scheduleToHuman(schedule: string | ScheduleObject): string {
     if (schedule.kind === "every" && schedule.everyMs) {
       return `Every ${formatMs(schedule.everyMs)}`;
     }
-    if (schedule.kind === "cron" && schedule.cron) {
-      return cronToHuman(schedule.cron);
+    if (schedule.cron || schedule.expr) {
+      return cronToHuman(schedule.cron || schedule.expr || "");
     }
     if (schedule.everyMs) {
       return `Every ${formatMs(schedule.everyMs)}`;
@@ -108,6 +123,29 @@ function cronToHuman(cron: string): string {
   return cron;
 }
 
+function jobTitle(job: CronJob): string {
+  if (job.name?.trim()) return job.name.trim();
+  if (job.prompt?.trim()) return job.prompt.trim();
+  const payloadText = job.payload?.message || job.payload?.text;
+  if (payloadText?.trim()) {
+    const firstLine = payloadText.trim().split("\n")[0];
+    return firstLine.length > 90 ? `${firstLine.slice(0, 87)}...` : firstLine;
+  }
+  return "Unnamed task";
+}
+
+function normalizeRunTime(job: CronJob, kind: "last" | "next"): string | undefined {
+  if (kind === "last") {
+    if (job.lastRun) return job.lastRun;
+    if (job.state?.lastRunAtMs) return new Date(job.state.lastRunAtMs).toISOString();
+    return undefined;
+  }
+
+  if (job.nextRun) return job.nextRun;
+  if (job.state?.nextRunAtMs) return new Date(job.state.nextRunAtMs).toISOString();
+  return undefined;
+}
+
 function timeAgo(dateStr: string | undefined): string {
   if (!dateStr) return "Never";
   const date = new Date(dateStr);
@@ -125,6 +163,20 @@ function timeAgo(dateStr: string | undefined): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+function formatNextRun(job: CronJob): string {
+  const next = normalizeRunTime(job, "next");
+  if (next) return timeAgo(next);
+  if (!job.enabled) return "Paused";
+  const sched = typeof job.schedule === "object" ? job.schedule : undefined;
+  if (sched?.kind === "at") return "One-time";
+  return "Not scheduled";
+}
+
+function formatLastRun(job: CronJob): string {
+  const last = normalizeRunTime(job, "last");
+  return last ? timeAgo(last) : "No runs yet";
+}
+
 export function CronScheduler() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,6 +189,15 @@ export function CronScheduler() {
   const [newSchedule, setNewSchedule] = useState(SCHEDULE_PRESETS[1].cron);
   const [newAgent, setNewAgent] = useState("main");
   const [creating, setCreating] = useState(false);
+
+  const sortedJobs = useMemo(() => {
+    return [...jobs].sort((a, b) => {
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      const aName = jobTitle(a).toLowerCase();
+      const bName = jobTitle(b).toLowerCase();
+      return aName.localeCompare(bName);
+    });
+  }, [jobs]);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -222,7 +283,7 @@ export function CronScheduler() {
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col">
+    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="p-6 border-b border-border bg-card/30">
         <div className="flex items-center justify-between">
@@ -249,7 +310,7 @@ export function CronScheduler() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 min-h-0 p-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -268,7 +329,7 @@ export function CronScheduler() {
           </div>
         ) : (
           <div className="space-y-3">
-            {jobs.map((job) => {
+            {sortedJobs.map((job) => {
               const isExpanded = expandedJob === job.id;
               const isLoading = actionLoading === job.id;
               return (
@@ -291,7 +352,7 @@ export function CronScheduler() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">
-                        {job.prompt || "Unnamed task"}
+                        {jobTitle(job)}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
@@ -302,9 +363,7 @@ export function CronScheduler() {
                           <Bot className="w-3 h-3" />
                           {job.agentId || "main"}
                         </span>
-                        {job.nextRun && (
-                          <span>Next: {timeAgo(job.nextRun)}</span>
-                        )}
+                        <span>Next: {formatNextRun(job)}</span>
                       </div>
                     </div>
 
@@ -371,11 +430,11 @@ export function CronScheduler() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">Last run:</span>{" "}
-                          {timeAgo(job.lastRun)}
+                          {formatLastRun(job)}
                         </div>
                         <div>
                           <span className="text-muted-foreground">Next run:</span>{" "}
-                          {timeAgo(job.nextRun)}
+                          {formatNextRun(job)}
                         </div>
                       </div>
                       <div className="flex gap-2 pt-2">
