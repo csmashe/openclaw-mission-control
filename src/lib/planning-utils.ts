@@ -1,4 +1,5 @@
 import { getOpenClawClient } from "./openclaw-client";
+import { extractTextContent } from "./completion-gate";
 
 const MAX_EXTRACT_JSON_LENGTH = 1_000_000;
 
@@ -52,14 +53,7 @@ export async function getMessagesFromOpenClaw(
     const messages: Array<{ role: string; content: string }> = [];
     for (const msg of history) {
       if (msg.role === "assistant") {
-        const content = typeof msg.content === "string"
-          ? msg.content
-          : Array.isArray(msg.content)
-          ? (msg.content as Array<{ type: string; text?: string }>)
-              .filter((c) => c.type === "text")
-              .map((c) => c.text)
-              .join("\n")
-          : "";
+        const content = extractTextContent(msg.content);
         if (content.trim().length > 0) {
           messages.push({ role: "assistant", content });
         }

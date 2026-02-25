@@ -12,6 +12,7 @@ import {
 } from "./db";
 import { transitionTaskStatus } from "./task-state";
 import { extractJSON } from "./planning-utils";
+import { extractTextContent } from "./completion-gate";
 import { getAgentTaskMonitor } from "./agent-task-monitor";
 import { resolveInternalApiUrl } from "./internal-api";
 
@@ -80,10 +81,7 @@ export async function invokeOrchestrator(
 
       if (assistantMsgs.length > baseline) {
         const latest = assistantMsgs[assistantMsgs.length - 1];
-        const content =
-          typeof latest.content === "string"
-            ? latest.content
-            : String(latest.content);
+        const content = extractTextContent(latest.content);
 
         const parsed = extractJSON(content) as OrchestratorDecision | null;
         if (parsed && parsed.action) {

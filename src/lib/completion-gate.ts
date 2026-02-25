@@ -21,12 +21,31 @@ const INSTANT_WINDOW_MS = 5_000;
 export function extractTextContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content
-      .filter((block: Record<string, unknown>) => block.type === "text" && block.text)
-      .map((block: Record<string, unknown>) => String(block.text))
-      .join("\n");
+    const parts: string[] = [];
+    for (const block of content) {
+      if (typeof block === "string") {
+        parts.push(block);
+      } else if (block && typeof block === "object") {
+        const obj = block as Record<string, unknown>;
+        // Extract text from any block that has a text field
+        // (covers Claude {type:"text",text:...}, OpenAI {type:"output_text",text:...}, etc.)
+        if (typeof obj.text === "string") {
+          parts.push(obj.text);
+        } else if (typeof obj.content === "string") {
+          parts.push(obj.content);
+        }
+      }
+    }
+    if (parts.length > 0) return parts.join("\n");
+    // Fallback: stringify the array if no text could be extracted
+    return JSON.stringify(content);
   }
-  if (content && typeof content === "object") return JSON.stringify(content);
+  if (content && typeof content === "object") {
+    const obj = content as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.content === "string") return obj.content;
+    return JSON.stringify(content);
+  }
   return "";
 }
 
