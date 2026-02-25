@@ -56,12 +56,50 @@ Once configured, Mission Control starts in **under 1 second** and opens at `http
 
 ### 📋 Kanban Task Board
 
-Organize AI agent work across five workflow stages with drag-and-drop:
+Organize AI agent work across seven workflow stages with drag-and-drop:
 
-- **Inbox** → **Assigned** → **In Progress** → **Review** → **Done**
+- **Inbox** → **Planning** → **Assigned** → **In Progress** → **Testing** → **Review** → **Done**
 - Create tasks with priority levels (Low, Medium, High, Urgent)
 - Drag tasks between columns to update status
 - Task cards show assigned agent, priority badge, and time elapsed
+
+### 🧠 AI Planning Phase
+
+Before dispatching work, tasks can go through an AI-driven planning phase:
+
+- **Clarifying Q&A** — the planner agent asks questions to refine requirements before producing a spec
+- **Spec review** — once the spec is ready, review the title, summary, deliverables, and success criteria
+- **Revision workflow** — send feedback to the planner to revise the spec before approving
+- **Auto-approve & dispatch** — optionally skip the approval gate and dispatch automatically once the spec is ready (useful for automated/CI-driven task creation)
+- **Agent assignment at approval** — assign or change the target agent at approval time
+
+### 🔄 Multi-Agent Orchestration
+
+Configure dedicated agents for each workflow role under **Settings > Workflow Roles**:
+
+- **Orchestrator** — coordinates handoffs between planning, coding, and testing phases
+- **Planner** — handles spec clarification during the planning phase
+- **Tester** — validates completed work via code review, lint, type checks, and browser testing
+- **Rework cycles** — failed tests automatically loop back to the programmer, up to a configurable max
+
+When no roles are configured, behavior is identical to default direct routing.
+
+### 🧪 Testing Column & Quality Gate
+
+Completed tasks can be routed through a dedicated testing stage:
+
+- Automated test agent validates deliverables
+- Failed tests trigger rework cycles back to the assigned agent
+- Configurable max rework cycles before escalating to manual review
+
+### 👥 Who's Working Panel
+
+A real-time view of every active agent and what they are doing:
+
+- Agent name, current task, session status, and activity type
+- Stall detection — healthy, idle warning, stalled, or error states
+- Elapsed time and idle time tracking per worker
+- One-click refresh to get the latest snapshot
 
 ### 🤖 Agent Monitoring
 
@@ -83,6 +121,64 @@ Organize AI agent work across five workflow stages with drag-and-drop:
 - Track mission progress and completion status
 - Organize complex multi-task workflows
 
+### 🧩 Plugin System
+
+Extend Mission Control with custom plugins — no need to modify core source:
+
+- **Plugin directory** — drop a folder with a `plugin.json` manifest and a bundled JS file into `~/.openclaw/mission-control/plugins/`
+- **Enable/disable from UI** — manage plugins in **Settings > Plugins** with one-click toggle and directory rescan
+- **Sidebar integration** — enabled plugins get their own icon in the sidebar nav (any Lucide icon)
+- **Full API access** — plugins receive a context object with `api.get/post/patch/delete`, navigation, and per-plugin settings
+- **Error boundaries** — broken plugins are caught and display an error UI with a retry button
+- **SSE events** — `plugin_toggled` event broadcasts enable/disable changes in real time
+
+#### Writing a Plugin
+
+Create `~/.openclaw/mission-control/plugins/my-plugin/plugin.json`:
+
+```json
+{
+  "name": "My Plugin",
+  "slug": "my-plugin",
+  "version": "1.0.0",
+  "description": "What it does",
+  "author": "Your Name",
+  "icon": "puzzle",
+  "entry": "index.js"
+}
+```
+
+Create `index.js` (pre-bundled, React provided by host):
+
+```js
+(function(React, mc) {
+  function MyPlugin({ context }) {
+    const [data, setData] = React.useState(null);
+    React.useEffect(() => {
+      context.api.get('/api/tasks').then(setData);
+    }, []);
+    return React.createElement('div', { className: 'flex-1 p-6' },
+      React.createElement('h2', { className: 'text-xl font-bold' }, 'My Plugin')
+    );
+  }
+  mc.register('my-plugin', MyPlugin);
+})(window.__MC_REACT, window.__MC_PLUGINS);
+```
+
+A sample `hello-world` plugin is included in the repository.
+
+### 📁 Markdown File Browser
+
+Browse and manage markdown files within allowed project directories:
+
+- List, read, and write files via the `/api/files/*` endpoints
+- Sandboxed access with configurable root directories and deny lists
+- Conflict detection via content hashing
+
+### 💬 Chat Panel
+
+Interactive chat interface for conversing with AI agents directly from the dashboard.
+
 ### 🌗 Dark & Light Mode
 
 - Beautiful dark mode with glassmorphism effects (default)
@@ -91,10 +187,11 @@ Organize AI agent work across five workflow stages with drag-and-drop:
 
 ### ⚡ Real-Time Sync
 
+- Server-Sent Events (SSE) for instant UI updates
 - WebSocket connection to OpenClaw gateway
 - Live status indicator (System Online / Offline)
 - Auto-reconnection on connection loss
-- Instant UI updates when agents complete work
+- Zustand store for client-side state management
 
 ---
 
@@ -219,6 +316,7 @@ Set `OPENCLAW_API_TOKEN` explicitly; Mission Control does not fall back to any o
 | [Tailwind CSS 4](https://tailwindcss.com/)      | Utility-first styling                           |
 | [Radix UI](https://www.radix-ui.com/)           | Accessible, unstyled UI primitives              |
 | [shadcn/ui](https://ui.shadcn.com/)             | Pre-built component library                     |
+| [Zustand](https://zustand.docs.pmnd.rs/)        | Client-side state management                    |
 | [SQLite](https://www.sqlite.org/)               | Lightweight local database (via better-sqlite3) |
 | [dnd-kit](https://dndkit.com/)                  | Drag-and-drop for Kanban board                  |
 | [Lucide Icons](https://lucide.dev/)             | Beautiful icon set                              |
@@ -229,19 +327,43 @@ Set `OPENCLAW_API_TOKEN` explicitly; Mission Control does not fall back to any o
 mission-control/
 ├── bin/
 │   └── cli.mjs              # npx entry point & setup wizard
+├── plugins/                  # User-installed plugins
+│   └── hello-world/          # Sample plugin
+│       ├── plugin.json       # Manifest (name, slug, icon, entry)
+│       └── index.js          # Pre-bundled JS component
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx          # Main dashboard (Kanban, Agents, Missions)
 │   │   ├── globals.css       # Design tokens & theme variables
 │   │   └── api/
-│   │       ├── tasks/        # CRUD + dispatch + comments
+│   │       ├── tasks/        # CRUD + dispatch + planning + testing + orchestration
 │   │       ├── agents/       # Agent listing from gateway
 │   │       ├── missions/     # Mission management
 │   │       ├── activity/     # Activity log feed
-│   │       └── openclaw/     # Gateway status endpoint
-│   ├── components/           # Reusable UI components (shadcn)
+│   │       ├── plugins/      # Plugin list, enable/disable, bundles, settings
+│   │       ├── files/        # Markdown file browser (list, download, upload)
+│   │       ├── settings/     # Workflow role settings
+│   │       ├── who-working/  # Active worker snapshot
+│   │       └── openclaw/     # Gateway status, tools, logs, device-pair, usage
+│   ├── components/
+│   │   ├── board/            # KanbanBoard, TaskCard, PlanningTab
+│   │   ├── layout/           # Sidebar, Header, LiveTerminal, PluginIcon
+│   │   ├── modals/           # CreateTaskModal, DispatchModal, TaskDetailModal
+│   │   ├── views/            # Panel views (settings, who-working, plugins, chat, etc.)
+│   │   └── ui/               # shadcn primitives (Button, Dialog, Select, etc.)
+│   ├── hooks/
+│   │   ├── useSSE.ts         # Server-Sent Events client
+│   │   └── usePlugins.ts     # Plugin loader & registry
 │   └── lib/
 │       ├── db.ts             # SQLite database & schema
+│       ├── migrations.ts     # Schema migrations (001–009)
+│       ├── store.ts          # Zustand client state store
+│       ├── orchestrator.ts   # Multi-agent orchestration engine
+│       ├── plugins.ts        # Server-side plugin scanner & cache
+│       ├── plugin-db.ts      # Plugin enable/disable & settings DB
+│       ├── plugin-types.ts   # Plugin type definitions
+│       ├── who-working.ts    # Active worker detection & stall analysis
+│       ├── markdown-files.ts # Sandboxed file browser
 │       └── openclaw-client.ts # WebSocket client for gateway
 ├── data/                     # SQLite database (auto-created)
 └── public/                   # Static assets
@@ -253,19 +375,75 @@ mission-control/
 
 Mission Control exposes REST API endpoints for programmatic access:
 
-| Method     | Endpoint               | Description                                           |
-| ---------- | ---------------------- | ----------------------------------------------------- |
-| `GET`      | `/api/tasks`           | List all tasks (filterable by status, agent, mission) |
-| `POST`     | `/api/tasks`           | Create a new task                                     |
-| `PATCH`    | `/api/tasks`           | Update task fields (status, priority, assignment)     |
-| `DELETE`   | `/api/tasks`           | Delete a task                                         |
-| `POST`     | `/api/tasks/dispatch`  | Dispatch a task to an AI agent                        |
-| `GET/POST` | `/api/tasks/comments`  | List or add task comments                             |
-| `GET`      | `/api/agents`          | List connected agents from gateway                    |
-| `GET`      | `/api/missions`        | List all missions                                     |
-| `POST`     | `/api/missions`        | Create a new mission                                  |
-| `GET`      | `/api/activity`        | Get recent activity log                               |
-| `GET`      | `/api/openclaw/status` | Check gateway connection status                       |
+### Tasks
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `GET`    | `/api/tasks`                          | List all tasks (filterable by status, agent, mission) |
+| `POST`   | `/api/tasks`                          | Create a new task                                     |
+| `PATCH`  | `/api/tasks`                          | Update task fields (status, priority, assignment)     |
+| `DELETE` | `/api/tasks`                          | Delete a task                                         |
+| `POST`   | `/api/tasks/dispatch`                 | Dispatch a task to an AI agent                        |
+| `GET`    | `/api/tasks/check-completion`         | Run completion gate checks on in-progress tasks       |
+| `GET/POST` | `/api/tasks/comments`               | List or add task comments                             |
+
+### Planning
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `GET`    | `/api/tasks/{id}/planning`            | Get planning state (messages, spec, status)           |
+| `POST`   | `/api/tasks/{id}/planning`            | Start a planning session                              |
+| `DELETE` | `/api/tasks/{id}/planning`            | Cancel planning and reset to inbox                    |
+| `GET`    | `/api/tasks/{id}/planning/poll`       | Poll for new planner messages / spec completion       |
+| `POST`   | `/api/tasks/{id}/planning/answer`     | Answer a planner clarifying question                  |
+| `POST`   | `/api/tasks/{id}/planning/approve`    | Approve the spec and dispatch to an agent             |
+| `POST`   | `/api/tasks/{id}/planning/revise`     | Send revision feedback to the planner                 |
+
+### Orchestration & Testing
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `POST`   | `/api/tasks/{id}/orchestrate`         | Trigger orchestrator evaluation for a task            |
+| `POST`   | `/api/tasks/{id}/test`                | Run the tester agent against a completed task         |
+| `POST`   | `/api/tasks/rework`                   | Send a task back to the assigned agent with feedback  |
+
+### Plugins
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `GET`    | `/api/plugins`                        | List discovered plugins (`?rescan=1` to refresh)      |
+| `POST`   | `/api/plugins`                        | Enable or disable a plugin                            |
+| `GET`    | `/api/plugins/{slug}/bundle`          | Serve a plugin's JS bundle                            |
+| `GET`    | `/api/plugins/{slug}/settings`        | Get plugin-specific settings                          |
+| `PATCH`  | `/api/plugins/{slug}/settings`        | Update plugin-specific settings                       |
+
+### Files
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `GET`    | `/api/files/list`                     | List files in an allowed directory                    |
+| `GET`    | `/api/files/download`                 | Read a markdown file                                  |
+| `POST`   | `/api/files/upload`                   | Write/update a markdown file (with conflict detection)|
+
+### Other
+
+| Method   | Endpoint                              | Description                                           |
+| -------- | ------------------------------------- | ----------------------------------------------------- |
+| `GET`    | `/api/agents`                         | List connected agents from gateway                    |
+| `POST`   | `/api/agents`                         | Create a new agent in OpenClaw                        |
+| `GET`    | `/api/missions`                       | List all missions                                     |
+| `POST`   | `/api/missions`                       | Create a new mission                                  |
+| `GET`    | `/api/activity`                       | Get recent activity log                               |
+| `GET`    | `/api/who-working`                    | Get active workers with stall detection               |
+| `GET`    | `/api/models`                         | List available AI models from gateway                 |
+| `GET/PUT`| `/api/settings/workflow`              | Get or update workflow role settings                  |
+| `GET`    | `/api/openclaw/status`                | Check gateway connection status                       |
+| `GET`    | `/api/openclaw/tools`                 | List available tools from gateway                     |
+| `GET`    | `/api/openclaw/logs`                  | Retrieve gateway logs                                 |
+| `GET`    | `/api/openclaw/usage`                 | Get usage/cost data from gateway                      |
+| `POST`   | `/api/openclaw/device-pair`           | Approve pending device pairing requests               |
+| `GET`    | `/api/events/stream`                  | SSE stream for real-time updates                      |
+| `POST`   | `/api/chat`                           | Send a message to an AI agent via chat                |
 
 ---
 
