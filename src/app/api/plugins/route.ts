@@ -44,8 +44,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, slug, enabled });
   } catch (error) {
+    console.error("[Plugins] Failed to update plugin:", error);
     return NextResponse.json(
-      { error: "Failed to update plugin", details: String(error) },
+      { error: "Failed to update plugin" },
       { status: 500 }
     );
   }

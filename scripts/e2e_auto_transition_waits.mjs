@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BASE_URL = process.env.MC_BASE_URL || "http://127.0.0.1:3080";
 const AGENT_ID = process.env.MC_E2E_AGENT_ID || "researcher";
-const OUT_DIR = process.env.MC_E2E_OUT_DIR || "/home/csmashe/.openclaw/workspace/memory/e2e_auto_transition";
+const OUT_DIR = process.env.MC_E2E_OUT_DIR || path.resolve(__dirname, "..", "e2e-output", "auto_transition");
 
 // Many MC deployments protect API routes. Prefer explicit token so these scripts can run headlessly.
 const TOKEN = process.env.MC_TOKEN || process.env.OPENCLAW_API_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;

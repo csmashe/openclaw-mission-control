@@ -209,6 +209,11 @@ class AgentTaskMonitor {
   }
 
   private startAckTimeout(monitor: ActiveMonitor): void {
+    // Skip ack timeout for tester monitors — their task is already in "testing"
+    // and handleAckTimeout would silently stopMonitoring, stranding the task.
+    const task = getTask(monitor.taskId);
+    if (task?.status === "testing") return;
+
     monitor.ackTimeoutTimer = setTimeout(async () => {
       await this.handleAckTimeout(monitor.sessionKey);
     }, this.FIRST_ACTIVITY_ACK_TIMEOUT_MS);
@@ -533,14 +538,28 @@ class AgentTaskMonitor {
         content: `Agent completed in ${duration}s. Running automated tests on deliverables...`,
       });
 
-      // Trigger test endpoint
-      try {
-        fetch(resolveInternalApiUrl(`/api/tasks/${taskId}/test`), { method: "POST" }).catch((err) =>
-          console.error(`[AgentTaskMonitor] Test trigger failed for ${taskId}:`, err)
-        );
-      } catch (err) {
-        console.error(`[AgentTaskMonitor] Test trigger error for ${taskId}:`, err);
-      }
+      // Trigger test endpoint — fall back to review if it fails
+      fetch(resolveInternalApiUrl(`/api/tasks/${taskId}/test`), { method: "POST" })
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`Test endpoint returned ${res.status}`);
+          }
+        })
+        .catch((err) => {
+          console.error(`[AgentTaskMonitor] Test trigger failed for ${taskId}, falling back to review:`, err);
+          transitionTaskStatus(taskId, "review", {
+            actor: "monitor",
+            reason: "test_trigger_failed",
+            agentId,
+            bypassGuards: true,
+          });
+          addComment({
+            id: uuidv4(),
+            task_id: taskId,
+            author_type: "system",
+            content: `Automated test trigger failed: ${String(err)}. Task moved to review.`,
+          });
+        });
 
       console.log(
         `[AgentTaskMonitor] Task ${taskId} moved to TESTING (completion gate accepted, deliverables found)`

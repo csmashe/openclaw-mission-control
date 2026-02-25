@@ -16,7 +16,7 @@ export async function POST(
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
   }
 
-  if (!(task as unknown as Record<string, unknown>).planning_complete) {
+  if (!task.planning_complete) {
     return NextResponse.json({ error: "Planning not complete" }, { status: 400 });
   }
 
@@ -60,6 +60,12 @@ export async function POST(
       // Route through orchestrator for spec evaluation + dispatch
       orchestrateAfterPlanning(taskId).catch((err) => {
         console.error(`[Planning Approve] Orchestrator post-planning failed for ${taskId}:`, err);
+        const errorDetail = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+        updateTask(taskId, {
+          ...({ planning_dispatch_error: errorDetail } as Record<string, unknown>),
+        } as Parameters<typeof updateTask>[1]);
+        const errTask = getTask(taskId);
+        if (errTask) broadcast({ type: "task_updated", payload: errTask });
       });
 
       const updatedTask = getTask(taskId);

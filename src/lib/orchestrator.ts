@@ -188,11 +188,21 @@ Respond with ONLY a JSON object:
   // Default: dispatch to programmer
   if (task.assigned_agent_id) {
     try {
-      await fetch(resolveInternalApiUrl("/api/tasks/dispatch"), {
+      const res = await fetch(resolveInternalApiUrl("/api/tasks/dispatch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taskId, agentId: task.assigned_agent_id }),
       });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.error(`[Orchestrator] Dispatch returned ${res.status} for ${taskId}:`, body);
+        addComment({
+          id: uuidv4(),
+          task_id: taskId,
+          author_type: "system",
+          content: `Orchestrator dispatch failed (HTTP ${res.status}): ${body.slice(0, 300)}`,
+        });
+      }
     } catch (err) {
       console.error(`[Orchestrator] Dispatch failed for ${taskId}:`, err);
       addComment({
@@ -363,7 +373,7 @@ Respond with ONLY a JSON object:
 
     if (task.assigned_agent_id) {
       try {
-        await fetch(resolveInternalApiUrl("/api/tasks/dispatch"), {
+        const res = await fetch(resolveInternalApiUrl("/api/tasks/dispatch"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -372,6 +382,10 @@ Respond with ONLY a JSON object:
             feedback: decision.feedback || decision.reasoning,
           }),
         });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`Dispatch returned ${res.status}: ${body.slice(0, 300)}`);
+        }
       } catch (err) {
         console.error(`[Orchestrator] Rework dispatch failed for ${taskId}:`, err);
         // Fall through to review if dispatch fails
@@ -466,8 +480,8 @@ TASK_COMPLETE dispatch_id=${dispatchId}: <brief summary of test results>
 
 Include in your response whether tests passed or failed and specific details about any issues found.`;
 
-  // Transition to testing
-  transitionTaskStatus(taskId, "testing", {
+  // Transition to testing — abort dispatch if this fails
+  const transition = transitionTaskStatus(taskId, "testing", {
     actor: "system",
     reason: "orchestrator_dispatch_to_tester",
     patch: {
@@ -478,6 +492,19 @@ Include in your response whether tests passed or failed and specific details abo
     },
     metadata: { testerAgentId: testerId, sessionKey, dispatchId },
   });
+
+  if (!transition.ok) {
+    console.error(
+      `[Orchestrator] Failed to transition task ${taskId} to testing: ${transition.blockedReason ?? "unknown"}`
+    );
+    addComment({
+      id: uuidv4(),
+      task_id: taskId,
+      author_type: "system",
+      content: `Orchestrator: Could not transition to testing (${transition.blockedReason ?? "transition failed"}). Tester dispatch aborted.`,
+    });
+    return;
+  }
 
   addComment({
     id: uuidv4(),

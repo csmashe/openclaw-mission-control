@@ -18,7 +18,7 @@ export async function GET(
 
   let messages: Array<{ role: string; content: string; timestamp?: number }> = [];
   try {
-    messages = JSON.parse((task as unknown as Record<string, unknown>).planning_messages as string || "[]");
+    messages = JSON.parse(task.planning_messages || "[]");
   } catch { /* empty */ }
 
   let currentQuestion = null;
@@ -35,24 +35,24 @@ export async function GET(
   let spec = null;
   let agents = null;
   try {
-    if ((task as unknown as Record<string, unknown>).planning_spec) {
-      spec = JSON.parse((task as unknown as Record<string, unknown>).planning_spec as string);
+    if (task.planning_spec) {
+      spec = JSON.parse(task.planning_spec);
     }
-    if ((task as unknown as Record<string, unknown>).planning_agents) {
-      agents = JSON.parse((task as unknown as Record<string, unknown>).planning_agents as string);
+    if (task.planning_agents) {
+      agents = JSON.parse(task.planning_agents);
     }
   } catch { /* empty */ }
 
   return NextResponse.json({
     taskId,
-    sessionKey: (task as unknown as Record<string, unknown>).planning_session_key,
+    sessionKey: task.planning_session_key,
     messages,
     currentQuestion,
-    isComplete: !!(task as unknown as Record<string, unknown>).planning_complete,
+    isComplete: !!task.planning_complete,
     spec,
     agents,
-    dispatchError: (task as unknown as Record<string, unknown>).planning_dispatch_error,
-    isStarted: !!(task as unknown as Record<string, unknown>).planning_session_key,
+    dispatchError: task.planning_dispatch_error,
+    isStarted: !!task.planning_session_key,
   });
 }
 
@@ -67,7 +67,7 @@ export async function POST(
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
   }
 
-  if ((task as unknown as Record<string, unknown>).planning_session_key) {
+  if (task.planning_session_key) {
     return NextResponse.json({ error: "Planning already started" }, { status: 409 });
   }
 
@@ -95,19 +95,27 @@ Begin — either produce the spec directly, or ask your first question.`;
     await client.sendMessage(sessionKey, prompt);
 
     // Transition to planning
-    transitionTaskStatus(taskId, "planning", {
+    const transition = transitionTaskStatus(taskId, "planning", {
       actor: "api",
       reason: "planning_started",
       metadata: { sessionKey },
     });
+
+    if (!transition.ok) {
+      return NextResponse.json(
+        { error: "Cannot transition to planning", reason: transition.blockedReason },
+        { status: 409 }
+      );
+    }
 
     const messages = [
       { role: "user", content: prompt, timestamp: Date.now() },
     ];
 
     updateTask(taskId, {
-      ...({ planning_session_key: sessionKey, planning_messages: JSON.stringify(messages) } as Record<string, unknown>),
-    } as Parameters<typeof updateTask>[1]);
+      planning_session_key: sessionKey,
+      planning_messages: JSON.stringify(messages),
+    });
 
     const updatedTask = getTask(taskId);
     if (updatedTask) {
@@ -139,16 +147,14 @@ export async function DELETE(
   }
 
   updateTask(taskId, {
-    ...({
-      planning_session_key: null,
-      planning_messages: "[]",
-      planning_complete: 0,
-      planning_spec: null,
-      planning_agents: null,
-      planning_dispatch_error: null,
-      planning_question_waiting: 0,
-    } as Record<string, unknown>),
-  } as Parameters<typeof updateTask>[1]);
+    planning_session_key: null,
+    planning_messages: "[]",
+    planning_complete: 0,
+    planning_spec: null,
+    planning_agents: null,
+    planning_dispatch_error: null,
+    planning_question_waiting: 0,
+  });
 
   transitionTaskStatus(taskId, "inbox", {
     actor: "api",

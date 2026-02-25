@@ -156,7 +156,8 @@ export function SettingsPanel() {
       }
       if (agentsRes.ok) {
         const a = await agentsRes.json();
-        setAgents(a.agents ?? a ?? []);
+        const list = Array.isArray(a.agents) ? a.agents : Array.isArray(a) ? a : [];
+        setAgents(list);
       }
     } catch (err) {
       setWorkflowError(String(err));

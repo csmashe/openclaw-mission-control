@@ -28,7 +28,7 @@ export function TaskCard({
   const isAgentWorking = isInProgress && !!task.assigned_agent_id;
   const isDone = task.status === "done";
   const isPlanning = task.status === "planning";
-  const hasSpecReady = isPlanning && (task as unknown as Record<string, unknown>).planning_complete === 1;
+  const hasSpecReady = isPlanning && task.planning_complete === 1;
   const hasQuestionWaiting = isPlanning && task.planning_question_waiting === 1;
   const priority = getPriorityStyle(task.priority);
 
@@ -43,9 +43,18 @@ export function TaskCard({
           ? "border-border opacity-60 hover:opacity-100"
           : "border-border hover:border-primary/50"
       }`}
+      role="button"
+      tabIndex={isAgentWorking ? -1 : 0}
       draggable={!isAgentWorking}
       onDragStart={isAgentWorking ? undefined : onDragStart}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (isAgentWorking) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
     >
       {/* Active task left accent */}
       {isInProgress && task.assigned_agent_id && (

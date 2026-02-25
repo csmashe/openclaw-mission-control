@@ -10,8 +10,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: taskId } = await params;
-  const body = await request.json();
-  const { feedback } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { feedback } = body as { feedback?: string };
 
   if (!feedback || !feedback.trim()) {
     return NextResponse.json({ error: "feedback is required" }, { status: 400 });
@@ -27,7 +32,7 @@ export async function POST(
     return NextResponse.json({ error: "Planning not started" }, { status: 400 });
   }
 
-  if (!(task as unknown as Record<string, unknown>).planning_complete) {
+  if (!task.planning_complete) {
     return NextResponse.json({ error: "Planning not complete — nothing to revise" }, { status: 400 });
   }
 

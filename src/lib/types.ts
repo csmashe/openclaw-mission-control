@@ -13,7 +13,14 @@ export interface Task {
   orchestrator_session_key?: string | null;
   tester_session_key?: string | null;
   rework_count?: number;
+  planning_session_key?: string | null;
+  planning_messages?: string;
+  planning_complete?: number;
+  planning_spec?: string | null;
+  planning_agents?: string | null;
+  planning_dispatch_error?: string | null;
   planning_question_waiting?: number;
+  planning_auto_approve?: number;
 }
 
 export interface TaskComment {

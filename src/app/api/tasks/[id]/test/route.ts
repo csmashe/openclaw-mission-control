@@ -1,26 +1,25 @@
 /**
  * Task Test API
- * Runs automated browser tests on task deliverables.
- * Uses Playwright for HTML/URL testing with JS error detection,
- * CSS validation, and resource loading checks.
- * Falls back to lightweight validation if Playwright is unavailable.
+ * Runs lightweight MC-side checks (file existence, CSS validation, build/lint),
+ * then delegates code review and browser testing to the agent via OpenClaw.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getTask, listDeliverables, addComment, logActivity, type TaskDeliverable } from "@/lib/db";
 import { transitionTaskStatus } from "@/lib/task-state";
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { exec } from "child_process";
+import { promisify } from "util";
 import path from "path";
+import { getOpenClawClient } from "@/lib/openclaw-client";
+import { extractJSON } from "@/lib/planning-utils";
+import { extractTextContent } from "@/lib/completion-gate";
+
+const execAsync = promisify(exec);
 
 interface CssValidationError {
   message: string;
-}
-
-interface ResourceError {
-  type: "image" | "script" | "stylesheet" | "link" | "other";
-  url: string;
-  error: string;
 }
 
 interface TestResult {
@@ -34,17 +33,19 @@ interface TestResult {
   httpStatus: number | null;
   consoleErrors: string[];
   cssErrors: CssValidationError[];
-  resourceErrors: ResourceError[];
   screenshotPath: string | null;
   duration: number;
   error?: string;
 }
 
-const SCREENSHOTS_DIR = ((process.env.PROJECTS_PATH || "~/projects").replace(/^~/, process.env.HOME || "")) + "/.screenshots";
+interface AgentTestResponse {
+  passed: boolean;
+  summary: string;
+  issues?: string[];
+}
 
-/**
- * Validate CSS syntax using css-tree
- */
+// --- Utility functions (kept from original) ---
+
 function validateCss(css: string): CssValidationError[] {
   const errors: CssValidationError[] = [];
   try {
@@ -92,132 +93,8 @@ function resolveDeliverablePath(inputPath: string): string {
   return found || candidates[0];
 }
 
-/**
- * Test a single deliverable using Playwright
- */
-async function testDeliverableWithBrowser(
-  browser: Awaited<ReturnType<typeof import("playwright").chromium.launch>>,
-  deliverable: TaskDeliverable,
-  taskId: string
-): Promise<TestResult> {
-  const startTime = Date.now();
-  const consoleErrors: string[] = [];
-  const resourceErrors: ResourceError[] = [];
-  let cssErrors: CssValidationError[] = [];
-  let httpStatus: number | null = null;
-  let screenshotPath: string | null = null;
+// --- Lightweight MC-side test (kept from original) ---
 
-  const isUrlDeliverable = deliverable.deliverable_type === "url";
-  const testPath = deliverable.path || "";
-  const resolvedPath = resolveDeliverablePath(testPath);
-
-  try {
-    if (!isUrlDeliverable) {
-      if (!testPath || !existsSync(resolvedPath)) {
-        return {
-          passed: false,
-          deliverable: { id: deliverable.id, title: deliverable.title, path: testPath || "unknown", type: "file" },
-          httpStatus: null, consoleErrors: [`File does not exist: ${testPath}`],
-          cssErrors: [], resourceErrors: [], screenshotPath: null,
-          duration: Date.now() - startTime, error: "File not found",
-        };
-      }
-
-      if (!testPath.endsWith(".html") && !testPath.endsWith(".htm")) {
-        return {
-          passed: true,
-          deliverable: { id: deliverable.id, title: deliverable.title, path: testPath, type: "file" },
-          httpStatus: null, consoleErrors: [], cssErrors: [], resourceErrors: [],
-          screenshotPath: null, duration: Date.now() - startTime,
-        };
-      }
-
-      const htmlContent = readFileSync(resolvedPath, "utf-8");
-      cssErrors = extractAndValidateCss(htmlContent);
-    }
-
-    let testUrl: string;
-    if (isUrlDeliverable) {
-      if (isHttpUrl(testPath)) {
-        testUrl = testPath;
-      } else {
-        if (!existsSync(resolvedPath)) {
-          return {
-            passed: false,
-            deliverable: { id: deliverable.id, title: deliverable.title, path: testPath, type: "url" },
-            httpStatus: null, consoleErrors: [`URL path does not exist: ${testPath}`],
-            cssErrors: [], resourceErrors: [], screenshotPath: null,
-            duration: Date.now() - startTime, error: "Path not found",
-          };
-        }
-        testUrl = `file://${resolvedPath}`;
-      }
-    } else {
-      testUrl = `file://${resolvedPath}`;
-    }
-
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-    page.on("pageerror", (error) => {
-      consoleErrors.push(`Page error: ${error.message}`);
-    });
-    page.on("requestfailed", (request) => {
-      const url = request.url();
-      const failure = request.failure();
-      const resourceType = request.resourceType();
-      let type: ResourceError["type"] = "other";
-      if (resourceType === "image") type = "image";
-      else if (resourceType === "script") type = "script";
-      else if (resourceType === "stylesheet") type = "stylesheet";
-      else if (resourceType === "document") type = "link";
-      resourceErrors.push({ type, url, error: failure?.errorText || "Request failed" });
-    });
-
-    const response = await page.goto(testUrl, { waitUntil: "networkidle", timeout: 30000 });
-    httpStatus = response?.status() || null;
-
-    if (isHttpUrl(testUrl) && httpStatus && (httpStatus < 200 || httpStatus >= 400)) {
-      consoleErrors.push(`HTTP error: Server returned status ${httpStatus}`);
-    }
-
-    await page.waitForTimeout(1000);
-
-    if (!existsSync(SCREENSHOTS_DIR)) {
-      mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-    }
-    const screenshotFilename = `${taskId}-${deliverable.id}-${Date.now()}.png`;
-    screenshotPath = path.join(SCREENSHOTS_DIR, screenshotFilename);
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-
-    await context.close();
-
-    const passed = consoleErrors.length === 0 && cssErrors.length === 0 && resourceErrors.length === 0;
-
-    return {
-      passed,
-      deliverable: { id: deliverable.id, title: deliverable.title, path: testPath, type: isUrlDeliverable ? "url" : "file" },
-      httpStatus, consoleErrors, cssErrors, resourceErrors, screenshotPath,
-      duration: Date.now() - startTime,
-    };
-  } catch (error) {
-    return {
-      passed: false,
-      deliverable: { id: deliverable.id, title: deliverable.title, path: testPath || "unknown", type: isUrlDeliverable ? "url" : "file" },
-      httpStatus, consoleErrors: [...consoleErrors, `Test error: ${error}`],
-      cssErrors, resourceErrors, screenshotPath,
-      duration: Date.now() - startTime, error: String(error),
-    };
-  }
-}
-
-/**
- * Lightweight fallback test when Playwright is unavailable.
- * Checks file existence, HTTP status (for URLs), and CSS syntax.
- */
 async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise<TestResult> {
   const startTime = Date.now();
   const testPath = deliverable.path || "";
@@ -243,7 +120,7 @@ async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise
         passed: false,
         deliverable: { id: deliverable.id, title: deliverable.title, path: testPath || "unknown", type: isUrlDeliverable ? "url" : "file" },
         httpStatus: null, consoleErrors: [`File does not exist: ${testPath}`],
-        cssErrors: [], resourceErrors: [], screenshotPath: null,
+        cssErrors: [], screenshotPath: null,
         duration: Date.now() - startTime, error: "File not found",
       };
     }
@@ -262,10 +139,137 @@ async function testDeliverableLightweight(deliverable: TaskDeliverable): Promise
   return {
     passed,
     deliverable: { id: deliverable.id, title: deliverable.title, path: testPath, type: isUrlDeliverable ? "url" : "file" },
-    httpStatus, consoleErrors, cssErrors, resourceErrors: [], screenshotPath: null,
+    httpStatus, consoleErrors, cssErrors, screenshotPath: null,
     duration: Date.now() - startTime,
   };
 }
+
+// --- Build & lint (new) ---
+
+async function runBuildAndLint(): Promise<{ passed: boolean; lintOutput: string; buildOutput: string }> {
+  const cwd = process.env.OPENCLAW_WORKSPACE || process.cwd();
+  let lintOutput = "";
+  let buildOutput = "";
+  let lintPassed = true;
+  let buildPassed = true;
+
+  try {
+    const lint = await execAsync("npm run lint 2>&1", { cwd, timeout: 60_000 });
+    lintOutput = (lint.stdout + lint.stderr).trim();
+  } catch (err) {
+    lintPassed = false;
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    lintOutput = ((e.stdout || "") + (e.stderr || "") || e.message || "lint failed").trim();
+  }
+
+  try {
+    const build = await execAsync("npm run build 2>&1", { cwd, timeout: 120_000 });
+    buildOutput = (build.stdout + build.stderr).trim();
+  } catch (err) {
+    buildPassed = false;
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    buildOutput = ((e.stdout || "") + (e.stderr || "") || e.message || "build failed").trim();
+  }
+
+  return { passed: lintPassed && buildPassed, lintOutput, buildOutput };
+}
+
+// --- Agent delegation (new) ---
+
+const AGENT_POLL_INTERVAL_MS = 5_000;
+const AGENT_POLL_TIMEOUT_MS = 180_000; // 3 minutes
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function askAgentToTest(
+  sessionKey: string,
+  prompt: string
+): Promise<AgentTestResponse> {
+  const client = getOpenClawClient();
+  await client.connect();
+
+  // Get baseline assistant message count
+  let baseline = 0;
+  try {
+    const history = await client.getChatHistory(sessionKey);
+    baseline = history.filter((m) => m.role === "assistant").length;
+  } catch {
+    // New session
+  }
+
+  // Send the prompt
+  await client.sendMessage(sessionKey, prompt);
+
+  // Poll for response
+  const startTime = Date.now();
+  let retried = false;
+
+  while (Date.now() - startTime < AGENT_POLL_TIMEOUT_MS) {
+    await sleep(AGENT_POLL_INTERVAL_MS);
+
+    try {
+      const history = await client.getChatHistory(sessionKey);
+      const assistantMsgs = history.filter((m) => m.role === "assistant");
+
+      if (assistantMsgs.length > baseline) {
+        const latest = assistantMsgs[assistantMsgs.length - 1];
+        const content = extractTextContent(latest.content);
+
+        const parsed = parseAgentTestResponse(content);
+        if (parsed) return parsed;
+
+        // Retry once with a JSON nudge
+        if (!retried) {
+          retried = true;
+          baseline = assistantMsgs.length;
+          await client.sendMessage(
+            sessionKey,
+            'Your previous response was not valid JSON. Please respond ONLY with a JSON object: { "passed": true/false, "summary": "...", "issues": ["..."] }'
+          );
+          continue;
+        }
+
+        // Second failure — heuristic text analysis
+        return parseAgentTextFallback(content);
+      }
+    } catch (err) {
+      console.error(`[Test] Poll error:`, err);
+    }
+  }
+
+  // Timeout
+  return { passed: false, summary: "Agent did not respond within 3 minutes" };
+}
+
+function parseAgentTestResponse(text: string): AgentTestResponse | null {
+  const parsed = extractJSON(text) as Record<string, unknown> | null;
+  if (parsed && typeof parsed.passed === "boolean") {
+    return {
+      passed: parsed.passed,
+      summary: typeof parsed.summary === "string" ? parsed.summary : String(parsed.summary ?? ""),
+      issues: Array.isArray(parsed.issues) ? parsed.issues.map(String) : undefined,
+    };
+  }
+  return null;
+}
+
+function parseAgentTextFallback(text: string): AgentTestResponse {
+  const lower = text.toLowerCase();
+  const hasPass = /\bpass(ed|ing|es)?\b/.test(lower) || /\ball\s+(tests?\s+)?pass/.test(lower);
+  const hasFail = /\bfail(ed|ing|ure|s)?\b/.test(lower) || /\berror(s)?\b/.test(lower) || /\bbug(s)?\b/.test(lower);
+
+  // If both present, bias toward fail; if neither, assume fail (conservative)
+  const passed = hasPass && !hasFail;
+
+  return {
+    passed,
+    summary: text.slice(0, 500),
+  };
+}
+
+// --- POST handler ---
 
 export async function POST(
   _request: NextRequest,
@@ -287,44 +291,118 @@ export async function POST(
       return NextResponse.json({ error: "No testable deliverables found" }, { status: 400 });
     }
 
-    const results: TestResult[] = [];
+    const phases: { name: string; passed: boolean; details: string }[] = [];
 
-    // Try Playwright first, fall back to lightweight
-    let usedPlaywright = false;
-    try {
-      const { chromium } = await import("playwright");
-      const browser = await chromium.launch({ headless: true });
-      usedPlaywright = true;
-
-      for (const deliverable of deliverables) {
-        results.push(await testDeliverableWithBrowser(browser, deliverable, taskId));
-      }
-
-      await browser.close();
-    } catch {
-      // Playwright unavailable - use lightweight tests
-      for (const deliverable of deliverables) {
-        results.push(await testDeliverableLightweight(deliverable));
-      }
+    // --- Phase 1: Lightweight checks ---
+    const lightweightResults: TestResult[] = [];
+    for (const deliverable of deliverables) {
+      lightweightResults.push(await testDeliverableLightweight(deliverable));
     }
+    const lightweightPassed = lightweightResults.every((r) => r.passed);
+    const lightweightIssues = lightweightResults
+      .filter((r) => !r.passed)
+      .map((r) => {
+        const errors: string[] = [];
+        if (r.consoleErrors.length > 0) errors.push(`${r.consoleErrors.length} errors`);
+        if (r.cssErrors.length > 0) errors.push(`${r.cssErrors.length} CSS errors`);
+        return `${r.deliverable.title}: ${errors.join(", ")}`;
+      });
 
-    const passed = results.every((r) => r.passed);
-    const failedCount = results.filter((r) => !r.passed).length;
+    phases.push({
+      name: "lightweight_checks",
+      passed: lightweightPassed,
+      details: lightweightPassed
+        ? `All ${lightweightResults.length} deliverable(s) passed basic checks`
+        : `Issues: ${lightweightIssues.join("; ")}`,
+    });
 
-    let summary: string;
-    if (passed) {
-      summary = `All ${results.length} deliverable(s) passed automated testing.`;
+    // --- Phase 2: Build & lint ---
+    const buildLint = await runBuildAndLint();
+    phases.push({
+      name: "build_and_lint",
+      passed: buildLint.passed,
+      details: buildLint.passed
+        ? "Build and lint passed"
+        : `Build/lint failed. Lint: ${buildLint.lintOutput.slice(0, 300)}. Build: ${buildLint.buildOutput.slice(0, 300)}`,
+    });
+
+    // --- Phase 3 & 4: Agent delegation (code review + browser testing) ---
+    const sessionKey = task.tester_session_key || task.openclaw_session_key;
+    let agentCodeReview: AgentTestResponse | null = null;
+    let agentBrowserTest: AgentTestResponse | null = null;
+
+    if (sessionKey) {
+      // Phase 3: Code review
+      const buildLintContext = buildLint.passed
+        ? ""
+        : `\n\n**Build/lint errors to address:**\nLint: ${buildLint.lintOutput.slice(0, 500)}\nBuild: ${buildLint.buildOutput.slice(0, 500)}`;
+
+      const codeReviewPrompt = `You are reviewing code changes for a task. Please review the code for bugs, logic errors, security issues, and best practice violations.
+
+**Task:** ${task.title}
+**Description:** ${task.description}
+
+**Deliverables:**
+${deliverables.map((d) => `- [${d.deliverable_type}] ${d.title}: ${d.path || "no path"}`).join("\n")}
+${buildLintContext}
+
+Review the code changes and respond with ONLY a JSON object:
+{
+  "passed": true/false,
+  "summary": "brief summary of findings",
+  "issues": ["issue 1", "issue 2"]
+}
+
+Set "passed" to true if the code is acceptable (minor style issues are OK). Set to false if there are bugs, logic errors, or significant problems.`;
+
+      agentCodeReview = await askAgentToTest(sessionKey, codeReviewPrompt);
+      phases.push({
+        name: "code_review",
+        passed: agentCodeReview.passed,
+        details: agentCodeReview.summary,
+      });
+
+      // Phase 4: Browser testing
+      const browserTestPrompt = `Do you have access to a browser or browser testing tool? If so, please test these deliverables:
+
+${deliverables.map((d) => `- [${d.deliverable_type}] ${d.title}: ${d.path || "no path"}`).join("\n")}
+
+If you have browser access, open each deliverable and verify it renders correctly, has no console errors, and functions as expected.
+If you do NOT have browser access, describe what testing you can perform instead (e.g., reading the HTML/CSS, checking file structure).
+
+Respond with ONLY a JSON object:
+{
+  "passed": true/false,
+  "summary": "what you tested and results",
+  "issues": ["issue 1", "issue 2"]
+}`;
+
+      agentBrowserTest = await askAgentToTest(sessionKey, browserTestPrompt);
+      phases.push({
+        name: "browser_testing",
+        passed: agentBrowserTest.passed,
+        details: agentBrowserTest.summary,
+      });
     } else {
-      const issues: string[] = [];
-      for (const r of results.filter((r) => !r.passed)) {
-        const errorTypes: string[] = [];
-        if (r.consoleErrors.length > 0) errorTypes.push(`${r.consoleErrors.length} errors`);
-        if (r.cssErrors.length > 0) errorTypes.push(`${r.cssErrors.length} CSS errors`);
-        if (r.resourceErrors.length > 0) errorTypes.push(`${r.resourceErrors.length} broken resources`);
-        issues.push(`${r.deliverable.title}: ${errorTypes.join(", ")}`);
-      }
-      summary = `${failedCount}/${results.length} deliverable(s) failed. Issues: ${issues.join("; ")}`;
+      // No session key — skip agent phases
+      phases.push({
+        name: "code_review",
+        passed: true,
+        details: "Skipped — no agent session available",
+      });
+      phases.push({
+        name: "browser_testing",
+        passed: true,
+        details: "Skipped — no agent session available",
+      });
     }
+
+    // --- Aggregate results ---
+    const passed = phases.every((p) => p.passed);
+    const failedPhases = phases.filter((p) => !p.passed);
+    const summary = passed
+      ? `All ${phases.length} test phases passed.`
+      : `${failedPhases.length}/${phases.length} phase(s) failed: ${failedPhases.map((p) => p.name).join(", ")}`;
 
     // Log test activity
     logActivity({
@@ -333,19 +411,9 @@ export async function POST(
       task_id: taskId,
       agent_id: task.assigned_agent_id ?? undefined,
       message: passed
-        ? `Automated test passed - ${results.length} deliverable(s) verified`
-        : `Automated test failed - ${summary}`,
-      metadata: {
-        usedPlaywright,
-        results: results.map((r) => ({
-          deliverable: r.deliverable.title,
-          type: r.deliverable.type,
-          passed: r.passed,
-          consoleErrors: r.consoleErrors.length,
-          cssErrors: r.cssErrors.length,
-          resourceErrors: r.resourceErrors.length,
-        })),
-      },
+        ? `Automated test passed — ${phases.length} phases verified`
+        : `Automated test failed — ${summary}`,
+      metadata: { phases },
     });
 
     // Update task status
@@ -383,7 +451,8 @@ export async function POST(
       taskId,
       taskTitle: task.title,
       passed,
-      results,
+      phases,
+      lightweightResults,
       summary,
       testedAt: new Date().toISOString(),
       newStatus,
@@ -416,6 +485,7 @@ export async function GET(
     deliverableCount: deliverables.length,
     testableItems: deliverables.map((d) => ({ id: d.id, title: d.title, path: d.path, type: d.deliverable_type })),
     workflow: {
+      phases: ["lightweight_checks", "build_and_lint", "code_review", "browser_testing"],
       expectedStatus: "testing",
       onPass: "Moves to review for human approval",
       onFail: "Moves to assigned for agent to fix issues",

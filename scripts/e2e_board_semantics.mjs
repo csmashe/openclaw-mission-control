@@ -1,18 +1,36 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BASE_URL = process.env.MC_BASE_URL || "http://127.0.0.1:3080";
-const OUT_DIR = process.env.MC_E2E_OUT_DIR || "/home/csmashe/.openclaw/workspace/memory/e2e_board_semantics";
+const OUT_DIR = process.env.MC_E2E_OUT_DIR || path.resolve(__dirname, "..", "e2e-output", "board_semantics");
+
+const TOKEN = process.env.MC_TOKEN || process.env.OPENCLAW_API_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
 
 async function apiFetch(url, opts = {}) {
-  const res = await fetch(url, {
-    ...opts,
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
-  });
+  const headers = { "content-type": "application/json", ...(opts.headers || {}) };
+  if (TOKEN && !headers.authorization && !headers["x-openclaw-token"]) {
+    headers.authorization = `Bearer ${TOKEN}`;
+    headers["x-openclaw-token"] = TOKEN;
+  }
+
+  const res = await fetch(url, { ...opts, headers });
   const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}: ${text}`);
+  let json;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = { raw: text };
+  }
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+    err.status = res.status;
+    err.body = json;
+    throw err;
+  }
   return json;
 }
 
@@ -21,7 +39,7 @@ function nowIso() {
 }
 
 async function createTask(titleSuffix, status = "inbox") {
-  const { task } = await apiFetch(`${BASE_URL}/api/tasks`, {
+  const created = await apiFetch(`${BASE_URL}/api/tasks`, {
     method: "POST",
     body: JSON.stringify({
       title: `E2E semantics ${titleSuffix} (${nowIso()})`,
@@ -30,6 +48,8 @@ async function createTask(titleSuffix, status = "inbox") {
       priority: "medium",
     }),
   });
+  const task = created?.task || created;
+  if (!task?.id) throw new Error(`createTask: unexpected response: ${JSON.stringify(created).slice(0, 300)}`);
   return task;
 }
 

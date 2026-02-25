@@ -1,12 +1,15 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import type { PluginManifest, PluginInfo } from "@/lib/plugin-types";
 import { getPluginRecords, ensurePluginRecord } from "@/lib/plugin-db";
 
-const PLUGINS_DIR = path.join(
-  process.env.HOME || "/home/csmashe",
-  ".openclaw/mission-control/plugins"
-);
+const HOME_DIR = process.env.HOME || os.homedir();
+if (!HOME_DIR) {
+  throw new Error("Cannot determine home directory: neither HOME env var nor os.homedir() returned a value");
+}
+
+const PLUGINS_DIR = path.join(HOME_DIR, ".openclaw/mission-control/plugins");
 
 let cachedPlugins: PluginInfo[] | null = null;
 let cacheTimestamp = 0;

@@ -6,7 +6,8 @@ function resolveConfiguredBase(): string | null {
     "";
 
   if (configured) {
-    return configured.replace(/\/+$/, "");
+    const hasProtocol = /^https?:\/\//i.test(configured);
+    return `${hasProtocol ? "" : "http://"}${configured}`.replace(/\/+$/, "");
   }
 
   const vercelUrl = process.env.VERCEL_URL?.trim();

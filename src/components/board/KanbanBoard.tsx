@@ -67,6 +67,7 @@ export function KanbanBoard({
                 {col.id === "inbox" ? (
                   <button
                     onClick={onCreateTask}
+                    aria-label="Add task"
                     className="text-muted-foreground hover:text-primary transition-colors"
                   >
                     <Plus className="w-4 h-4" />

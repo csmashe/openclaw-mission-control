@@ -11,7 +11,11 @@ function makePluginContext(slug: string, navigate: (viewId: ViewId) => void): Pl
     const opts: RequestInit = { method, headers: { "Content-Type": "application/json" } };
     if (body !== undefined) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || `API error: ${res.status} ${res.statusText}`);
+    }
+    return data;
   };
 
   return {

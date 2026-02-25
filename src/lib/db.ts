@@ -208,6 +208,12 @@ export interface Task {
   orchestrator_session_key: string | null;
   tester_session_key: string | null;
   rework_count: number;
+  planning_session_key: string | null;
+  planning_messages: string;
+  planning_complete: number;
+  planning_spec: string | null;
+  planning_agents: string | null;
+  planning_dispatch_error: string | null;
   planning_question_waiting: number;
   planning_auto_approve: number;
 }
@@ -293,6 +299,12 @@ export function updateTask(
     orchestrator_session_key: string | null;
     tester_session_key: string | null;
     rework_count: number;
+    planning_session_key: string | null;
+    planning_messages: string;
+    planning_complete: number;
+    planning_spec: string | null;
+    planning_agents: string | null;
+    planning_dispatch_error: string | null;
     planning_question_waiting: number;
     planning_auto_approve: number;
   }>
@@ -560,15 +572,35 @@ export function getWorkflowSettings(): WorkflowSettings {
   const settings = { ...WORKFLOW_SETTINGS_DEFAULTS };
   for (const row of rows) {
     if (row.key === "max_rework_cycles") {
-      settings.max_rework_cycles = parseInt(row.value, 10) || WORKFLOW_SETTINGS_DEFAULTS.max_rework_cycles;
-    } else if (row.key in settings) {
+      const parsed = parseInt(row.value, 10);
+      settings.max_rework_cycles = Number.isNaN(parsed) ? WORKFLOW_SETTINGS_DEFAULTS.max_rework_cycles : parsed;
+    } else if (Object.hasOwn(settings, row.key)) {
       (settings as Record<string, unknown>)[row.key] = row.value || null;
     }
   }
   return settings;
 }
 
-export function setWorkflowSetting(key: string, value: string): void {
+/**
+ * Atomically claim planning completion for a task.
+ * Returns true if this caller won the claim (planning_complete was 0 → 1).
+ * Returns false if another caller already claimed it.
+ */
+export function claimPlanningCompletion(
+  taskId: string,
+  spec: string,
+  messages: string
+): boolean {
+  const result = getDb()
+    .prepare(
+      `UPDATE tasks SET planning_complete = 1, planning_spec = ?, planning_messages = ?, planning_question_waiting = 0, updated_at = datetime('now')
+       WHERE id = ? AND planning_complete = 0`
+    )
+    .run(spec, messages, taskId);
+  return result.changes > 0;
+}
+
+export function setWorkflowSetting(key: keyof WorkflowSettings, value: string): void {
   const db = getDb();
   db.prepare(
     `INSERT INTO workflow_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

@@ -29,7 +29,7 @@ export interface LogDeliverableParams {
 
 export async function logActivity(params: LogActivityParams): Promise<void> {
   try {
-    await fetch(apiUrl("/api/activity"), {
+    const res = await fetch(apiUrl("/api/activity"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -40,6 +40,10 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
         metadata: params.metadata,
       }),
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`Error logging activity: HTTP ${res.status}`, body);
+    }
   } catch (error) {
     console.error("Error logging activity:", error);
   }
@@ -47,7 +51,7 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
 
 export async function logDeliverable(params: LogDeliverableParams): Promise<void> {
   try {
-    await fetch(apiUrl(`/api/tasks/${params.taskId}/deliverables`), {
+    const res = await fetch(apiUrl(`/api/tasks/${params.taskId}/deliverables`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -57,6 +61,10 @@ export async function logDeliverable(params: LogDeliverableParams): Promise<void
         description: params.description,
       }),
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`Error logging deliverable: HTTP ${res.status}`, body);
+    }
   } catch (error) {
     console.error("Error logging deliverable:", error);
   }

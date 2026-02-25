@@ -87,14 +87,21 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
     if (!newComment.trim() || sendingComment) return;
     setSendingComment(true);
     try {
-      await fetch("/api/tasks/comments", {
+      const res = await fetch("/api/tasks/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taskId: task.id, content: newComment.trim() }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[TaskDetailModal] Failed to add comment:", err.error || res.statusText);
+        return;
+      }
       setNewComment("");
       await fetchComments();
-    } catch {} finally {
+    } catch (err) {
+      console.error("[TaskDetailModal] Failed to add comment:", err);
+    } finally {
       setSendingComment(false);
     }
   };
@@ -103,16 +110,23 @@ export function TaskDetailModal({ task, onClose, onMoveToDone, onRefresh }: {
     if (!reworkFeedback.trim() || reworking) return;
     setReworking(true);
     try {
-      await fetch("/api/tasks/rework", {
+      const res = await fetch("/api/tasks/rework", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taskId: task.id, feedback: reworkFeedback.trim() }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[TaskDetailModal] Rework request failed:", err.error || res.statusText);
+        return;
+      }
       setReworkFeedback("");
       setShowRework(false);
       await fetchComments();
       onRefresh();
-    } catch {} finally {
+    } catch (err) {
+      console.error("[TaskDetailModal] Rework request failed:", err);
+    } finally {
       setReworking(false);
     }
   };

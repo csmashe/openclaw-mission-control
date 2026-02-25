@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTask, updateTask, addComment } from "@/lib/db";
+import { getTask, updateTask, addComment, claimPlanningCompletion } from "@/lib/db";
 import { extractJSON, getMessagesFromOpenClaw } from "@/lib/planning-utils";
 import { resolveInternalApiUrl } from "@/lib/internal-api";
 import { isOrchestratorEnabled, orchestrateAfterPlanning } from "@/lib/orchestrator";
@@ -23,7 +23,7 @@ export async function GET(
   }
 
   // Already complete
-  if ((task as unknown as Record<string, unknown>).planning_complete) {
+  if (task.planning_complete) {
     return NextResponse.json({ hasUpdates: false, complete: true });
   }
 
@@ -70,11 +70,9 @@ export async function GET(
 
     // Save updated messages + set question waiting flag
     updateTask(taskId, {
-      ...({
-        planning_messages: JSON.stringify(storedMessages),
-        planning_question_waiting: currentQuestion ? 1 : 0,
-      } as Record<string, unknown>),
-    } as Parameters<typeof updateTask>[1]);
+      planning_messages: JSON.stringify(storedMessages),
+      planning_question_waiting: currentQuestion ? 1 : 0,
+    });
 
     if (currentQuestion && !complete) {
       const questionTask = getTask(taskId);
@@ -84,38 +82,36 @@ export async function GET(
     }
 
     if (complete && spec) {
-      // Mark planning as complete — spec awaits user approval before dispatch
-      updateTask(taskId, {
-        ...({
-          planning_complete: 1,
-          planning_spec: JSON.stringify(spec),
-          planning_question_waiting: 0,
-        } as Record<string, unknown>),
-      } as Parameters<typeof updateTask>[1]);
+      // Atomically claim planning completion — only one poller wins
+      const claimed = claimPlanningCompletion(
+        taskId,
+        JSON.stringify(spec),
+        JSON.stringify(storedMessages)
+      );
 
-      // Log spec ready in activity
-      const specObj = spec as Record<string, unknown>;
-      const specTitle = (specObj.title as string) || "Untitled";
-      const specSummary = (specObj.summary as string) || "";
-      addComment({
-        id: uuidv4(),
-        task_id: taskId,
-        author_type: "system",
-        content: `📋 Spec ready for review: "${specTitle}"\n${specSummary}`,
-      });
+      if (claimed) {
+        // Log spec ready in activity
+        const specObj = spec as Record<string, unknown>;
+        const specTitle = (specObj.title as string) || "Untitled";
+        const specSummary = (specObj.summary as string) || "";
+        addComment({
+          id: uuidv4(),
+          task_id: taskId,
+          author_type: "system",
+          content: `📋 Spec ready for review: "${specTitle}"\n${specSummary}`,
+        });
 
-      const updatedTask = getTask(taskId);
-      if (updatedTask) {
-        broadcast({ type: "task_updated", payload: updatedTask });
+        const updatedTask = getTask(taskId);
+        if (updatedTask) {
+          broadcast({ type: "task_updated", payload: updatedTask });
 
-        // Auto-approve: if flag is set, trigger dispatch automatically
-        if ((updatedTask as unknown as Record<string, unknown>).planning_auto_approve) {
-          autoApproveAndDispatch(taskId, updatedTask.assigned_agent_id, request).catch((err) => {
-            console.error(`[Planning Poll] Auto-approve failed for ${taskId}:`, err);
-            updateTask(taskId, {
-              ...({ planning_dispatch_error: String(err) } as Record<string, unknown>),
-            } as Parameters<typeof updateTask>[1]);
-          });
+          // Auto-approve: if flag is set, trigger dispatch automatically
+          if (updatedTask.planning_auto_approve) {
+            autoApproveAndDispatch(taskId, updatedTask.assigned_agent_id, request).catch((err) => {
+              console.error(`[Planning Poll] Auto-approve failed for ${taskId}:`, err);
+              updateTask(taskId, { planning_dispatch_error: String(err) });
+            });
+          }
         }
       }
     }
@@ -128,8 +124,9 @@ export async function GET(
       messages: storedMessages,
     });
   } catch (err) {
+    console.error(`[Planning Poll] Poll failed for ${taskId}:`, err);
     return NextResponse.json(
-      { error: "Poll failed", details: String(err) },
+      { error: "Poll failed" },
       { status: 500 }
     );
   }

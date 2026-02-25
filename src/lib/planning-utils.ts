@@ -12,7 +12,8 @@ export function extractJSON(text: string): object | null {
   }
 
   try {
-    return JSON.parse(text.trim());
+    const result = JSON.parse(text.trim());
+    if (typeof result === "object" && result !== null) return result;
   } catch {
     // Continue
   }
@@ -20,7 +21,8 @@ export function extractJSON(text: string): object | null {
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
     try {
-      return JSON.parse(codeBlockMatch[1].trim());
+      const result = JSON.parse(codeBlockMatch[1].trim());
+      if (typeof result === "object" && result !== null) return result;
     } catch {
       // Continue
     }
@@ -30,7 +32,8 @@ export function extractJSON(text: string): object | null {
   const lastBrace = text.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     try {
-      return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+      const result = JSON.parse(text.slice(firstBrace, lastBrace + 1));
+      if (typeof result === "object" && result !== null) return result;
     } catch {
       // Continue
     }

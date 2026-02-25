@@ -33,6 +33,20 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
   const [startPlanning, setStartPlanning] = useState(false);
   const [autoApprovePlan, setAutoApprovePlan] = useState(false);
 
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setPriority("medium");
+    setAgentId("none");
+    setStartPlanning(false);
+    setAutoApprovePlan(false);
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) resetForm();
+    onOpenChange(isOpen);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -44,16 +58,11 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
       ...(startPlanning ? { startPlanning: true } : {}),
       ...(startPlanning && autoApprovePlan ? { autoApprovePlan: true } : {}),
     });
-    setTitle("");
-    setDescription("");
-    setPriority("medium");
-    setAgentId("none");
-    setStartPlanning(false);
-    setAutoApprovePlan(false);
+    resetForm();
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Create New Task</DialogTitle>
@@ -62,8 +71,9 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
+              <label htmlFor="task-title" className="text-sm font-medium">Title</label>
               <input
+                id="task-title"
                 type="text"
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={title}
@@ -73,8 +83,9 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Description</label>
+              <label htmlFor="task-description" className="text-sm font-medium">Description</label>
               <textarea
+                id="task-description"
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px] resize-y"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -151,7 +162,7 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
             <Button type="submit">Create Task</Button>
           </DialogFooter>
         </form>

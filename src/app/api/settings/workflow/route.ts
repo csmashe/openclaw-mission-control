@@ -26,6 +26,9 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // Validate all keys before writing anything
+    const updates: [keyof WorkflowSettings, string][] = [];
+
     for (const [key, value] of Object.entries(body)) {
       if (!VALID_KEYS.includes(key as keyof WorkflowSettings)) {
         return NextResponse.json(
@@ -34,25 +37,27 @@ export async function PUT(request: NextRequest) {
         );
       }
 
-      if (key === "max_rework_cycles") {
+      const validKey = key as keyof WorkflowSettings;
+
+      if (validKey === "max_rework_cycles") {
         const num = Number(value);
-        if (!Number.isFinite(num) || num < 0 || num > 10) {
+        if (!Number.isInteger(num) || num < 0 || num > 10) {
           return NextResponse.json(
-            { error: "max_rework_cycles must be between 0 and 10" },
+            { error: "max_rework_cycles must be an integer between 0 and 10" },
             { status: 400 }
           );
         }
-        setWorkflowSetting(key, String(num));
+        updates.push([validKey, String(num)]);
       } else {
         // Agent ID fields: string or null/empty to clear
         const strVal = value ? String(value) : "";
-        if (strVal) {
-          setWorkflowSetting(key, strVal);
-        } else {
-          // Clear by setting empty string (getWorkflowSettings treats "" as null)
-          setWorkflowSetting(key, "");
-        }
+        updates.push([validKey, strVal]);
       }
+    }
+
+    // All validated — apply writes
+    for (const [key, val] of updates) {
+      setWorkflowSetting(key, val);
     }
 
     const settings = getWorkflowSettings();

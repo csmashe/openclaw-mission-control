@@ -181,7 +181,7 @@ export default function Dashboard() {
   useEffect(() => {
     const interval = setInterval(() => {
       const planningTasks = useMissionControl.getState().tasks.filter(
-        (t) => t.status === "planning" && !(t as unknown as Record<string, unknown>).planning_complete
+        (t) => t.status === "planning" && !t.planning_complete
       );
       for (const t of planningTasks) {
         fetch(`/api/tasks/${t.id}/planning/poll`).catch(() => {});
