@@ -62,5 +62,9 @@ export interface DevicePairStatus {
 
 export type ColumnId = "inbox" | "planning" | "assigned" | "in_progress" | "testing" | "review" | "done";
 
-export const VALID_VIEWS = ["board", "who-working", "agents", "missions", "tools", "usage", "approvals", "cron", "logs", "settings", "chat"] as const;
-export type ViewId = (typeof VALID_VIEWS)[number];
+export const BASE_VIEWS = ["board", "who-working", "agents", "missions", "tools", "usage", "approvals", "cron", "logs", "settings", "chat"] as const;
+export type BaseViewId = (typeof BASE_VIEWS)[number];
+export type ViewId = BaseViewId | `plugin:${string}`;
+
+// Alias for backwards compatibility
+export const VALID_VIEWS = BASE_VIEWS;

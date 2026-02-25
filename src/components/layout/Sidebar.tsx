@@ -19,6 +19,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { PluginIcon } from "@/components/layout/PluginIcon";
+import { useMissionControl } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
 
 const NAV_ITEMS = [
@@ -83,6 +85,9 @@ export function Sidebar({
             </Tooltip>
           );
         })}
+
+        {/* Plugin nav items */}
+        <PluginNavItems activeView={activeView} onViewChange={onViewChange} />
       </nav>
 
       {/* Bottom actions */}
@@ -112,5 +117,50 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+  );
+}
+
+function PluginNavItems({
+  activeView,
+  onViewChange,
+}: {
+  activeView: ViewId;
+  onViewChange: (view: ViewId) => void;
+}) {
+  const plugins = useMissionControl((s) => s.plugins);
+  const enabledPlugins = plugins.filter((p) => p.enabled);
+
+  if (enabledPlugins.length === 0) return null;
+
+  return (
+    <>
+      <div className="w-8 border-t border-border/50 my-1" />
+      {enabledPlugins.map((plugin) => {
+        const viewId: ViewId = `plugin:${plugin.manifest.slug}`;
+        const isActive = activeView === viewId;
+        return (
+          <Tooltip key={plugin.manifest.slug}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onViewChange(viewId)}
+                className={`w-10 h-10 rounded flex items-center justify-center transition-all relative group ${
+                  isActive
+                    ? "text-primary bg-primary/10 shadow-[0_0_10px_oklch(0.58_0.2_260/0.3)]"
+                    : "text-muted-foreground hover:text-primary hover:bg-primary/5"
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute left-0 w-1 h-6 bg-primary rounded-r" />
+                )}
+                <PluginIcon name={plugin.manifest.icon} className="w-5 h-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>{plugin.manifest.name}</p>
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </>
   );
 }

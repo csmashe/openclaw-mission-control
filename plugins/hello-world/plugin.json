@@ -1,0 +1,9 @@
+{
+  "name": "Hello World",
+  "slug": "hello-world",
+  "version": "1.0.0",
+  "description": "A sample plugin demonstrating the Mission Control plugin system",
+  "author": "Mission Control",
+  "icon": "puzzle",
+  "entry": "index.js"
+}

@@ -32,14 +32,17 @@ import {
 } from "@/components/ui/dialog";
 import { AgentsView } from "@/components/AgentsView";
 import { MissionsView } from "@/components/MissionsView";
+import { PluginViewWrapper } from "@/components/views/plugin-view-wrapper";
 import { useMissionControl } from "@/lib/store";
 import { useSSE } from "@/hooks/useSSE";
+import { usePlugins } from "@/hooks/usePlugins";
 import type { Task, ViewId } from "@/lib/types";
 import { VALID_VIEWS } from "@/lib/types";
 
 function getViewFromHash(): ViewId {
   if (typeof window === "undefined") return "board";
   const hash = window.location.hash.replace("#", "");
+  if (hash.startsWith("plugin:")) return hash as ViewId;
   return (VALID_VIEWS as readonly string[]).includes(hash) ? (hash as ViewId) : "board";
 }
 
@@ -60,6 +63,9 @@ export default function Dashboard() {
 
   // SSE for real-time updates
   useSSE();
+
+  // Plugin system
+  usePlugins();
 
   // Hash-based view routing
   useEffect(() => {
@@ -376,6 +382,7 @@ export default function Dashboard() {
           {activeView === "logs" && <LogsViewer />}
           {activeView === "settings" && <SettingsPanel />}
           {activeView === "chat" && <ChatPanel />}
+          {activeView.startsWith("plugin:") && <PluginViewWrapper />}
 
           <LiveTerminal
             open={terminalOpen}

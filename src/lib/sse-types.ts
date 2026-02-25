@@ -5,7 +5,8 @@ export type SSEEventType =
   | "activity_logged"
   | "deliverable_added"
   | "agent_spawned"
-  | "agent_completed";
+  | "agent_completed"
+  | "plugin_toggled";
 
 export interface SSEEvent {
   type: SSEEventType;

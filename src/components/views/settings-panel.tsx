@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Cpu, Check, RefreshCw, Sparkles, AlertTriangle, Workflow } from "lucide-react";
+import { Cpu, Check, RefreshCw, Sparkles, AlertTriangle, Workflow, Puzzle } from "lucide-react";
+import { PluginManager } from "@/components/views/plugin-manager";
 
 interface GatewayModel {
   id: string;
@@ -87,11 +88,12 @@ interface AgentInfo {
   name?: string;
 }
 
-type SettingsTab = "model" | "workflow";
+type SettingsTab = "model" | "workflow" | "plugins";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "model", label: "AI Model & Provider", icon: <Sparkles className="w-4 h-4" /> },
   { id: "workflow", label: "Workflow Roles", icon: <Workflow className="w-4 h-4" /> },
+  { id: "plugins", label: "Plugins", icon: <Puzzle className="w-4 h-4" /> },
 ];
 
 export function SettingsPanel() {
@@ -473,6 +475,8 @@ export function SettingsPanel() {
             </div>
           </div>
         )}
+
+        {activeTab === "plugins" && <PluginManager />}
 
         {activeTab === "workflow" && (
           <div className="space-y-6">

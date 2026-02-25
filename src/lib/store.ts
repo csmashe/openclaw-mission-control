@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { Task, ActivityEntry, Agent, GatewayStatus, DevicePairStatus, ViewId } from "./types";
+import type { PluginInfo } from "./plugin-types";
 
 interface MissionControlState {
   // Data
@@ -10,6 +11,10 @@ interface MissionControlState {
   agents: Agent[];
   gatewayStatus: GatewayStatus;
   devicePairStatus: DevicePairStatus;
+
+  // Plugin state
+  plugins: PluginInfo[];
+  pluginComponents: Record<string, React.ComponentType<{ context: unknown }>>;
 
   // UI State
   selectedTask: Task | null;
@@ -33,6 +38,8 @@ interface MissionControlState {
   setShowDispatchModal: (task: Task | null) => void;
   setShowTaskDetail: (task: Task | null) => void;
   setTerminalOpen: (open: boolean) => void;
+  setPlugins: (plugins: PluginInfo[]) => void;
+  registerPluginComponent: (slug: string, component: React.ComponentType<{ context: unknown }>) => void;
 
   // Task mutations
   updateTask: (task: Task) => void;
@@ -45,6 +52,8 @@ export const useMissionControl = create<MissionControlState>((set) => ({
   tasks: [],
   activity: [],
   agents: [],
+  plugins: [],
+  pluginComponents: {},
   gatewayStatus: { connected: false, agentCount: 0, cronJobCount: 0 },
   devicePairStatus: { pendingCount: 0 },
   selectedTask: null,
@@ -74,6 +83,11 @@ export const useMissionControl = create<MissionControlState>((set) => ({
   setShowDispatchModal: (showDispatchModal) => set({ showDispatchModal }),
   setShowTaskDetail: (showTaskDetail) => set({ showTaskDetail }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
+  setPlugins: (plugins) => set({ plugins }),
+  registerPluginComponent: (slug, component) =>
+    set((state) => ({
+      pluginComponents: { ...state.pluginComponents, [slug]: component },
+    })),
 
   // Task mutations
   updateTask: (updatedTask) =>

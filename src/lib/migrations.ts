@@ -124,6 +124,25 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_id);
     `,
   },
+  {
+    id: "008_plugins",
+    sql: `
+      CREATE TABLE IF NOT EXISTS plugins (
+        slug TEXT PRIMARY KEY,
+        enabled INTEGER DEFAULT 0,
+        installed_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS plugin_settings (
+        plugin_slug TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (plugin_slug, key),
+        FOREIGN KEY (plugin_slug) REFERENCES plugins(slug) ON DELETE CASCADE
+      );
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
