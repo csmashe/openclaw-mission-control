@@ -193,7 +193,7 @@ export default function Dashboard() {
 
   // --- Task Actions ---
 
-  const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean }) => {
+  const createTask = async (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean; autoApprovePlan?: boolean }) => {
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -202,6 +202,14 @@ export default function Dashboard() {
     const result = await res.json();
 
     if (data.startPlanning && result.task?.id) {
+      // Set auto-approve flag on the task before starting planning
+      if (data.autoApprovePlan) {
+        await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: result.task.id, planning_auto_approve: 1 }),
+        });
+      }
       // Start planning phase instead of direct dispatch
       await fetch(`/api/tasks/${result.task.id}/planning`, { method: "POST" });
     } else if (data.assigned_agent_id && result.task?.id) {

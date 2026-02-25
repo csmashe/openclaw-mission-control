@@ -209,6 +209,7 @@ export interface Task {
   tester_session_key: string | null;
   rework_count: number;
   planning_question_waiting: number;
+  planning_auto_approve: number;
 }
 
 export function listTasks(filters?: {
@@ -293,6 +294,7 @@ export function updateTask(
     tester_session_key: string | null;
     rework_count: number;
     planning_question_waiting: number;
+    planning_auto_approve: number;
   }>
 ): Task | undefined {
   const fields: string[] = [];

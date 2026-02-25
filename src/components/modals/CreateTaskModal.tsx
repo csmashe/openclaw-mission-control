@@ -23,7 +23,7 @@ import type { Agent } from "@/lib/types";
 export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean }) => void;
+  onCreate: (data: { title: string; description: string; priority: string; assigned_agent_id?: string; startPlanning?: boolean; autoApprovePlan?: boolean }) => void;
   agents: Agent[];
 }) {
   const [title, setTitle] = useState("");
@@ -31,6 +31,7 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
   const [priority, setPriority] = useState("medium");
   const [agentId, setAgentId] = useState("none");
   const [startPlanning, setStartPlanning] = useState(false);
+  const [autoApprovePlan, setAutoApprovePlan] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,12 +42,14 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
       priority,
       ...(agentId !== "none" ? { assigned_agent_id: agentId } : {}),
       ...(startPlanning ? { startPlanning: true } : {}),
+      ...(startPlanning && autoApprovePlan ? { autoApprovePlan: true } : {}),
     });
     setTitle("");
     setDescription("");
     setPriority("medium");
     setAgentId("none");
     setStartPlanning(false);
+    setAutoApprovePlan(false);
   };
 
   return (
@@ -115,17 +118,36 @@ export function CreateTaskModal({ open, onOpenChange, onCreate, agents }: {
                 </Select>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="startPlanning"
-                checked={startPlanning}
-                onChange={(e) => setStartPlanning(e.target.checked)}
-                className="rounded border-input"
-              />
-              <label htmlFor="startPlanning" className="text-sm text-muted-foreground cursor-pointer">
-                Start with planning phase (AI will ask clarifying questions before dispatch)
-              </label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="startPlanning"
+                  checked={startPlanning}
+                  onChange={(e) => {
+                    setStartPlanning(e.target.checked);
+                    if (!e.target.checked) setAutoApprovePlan(false);
+                  }}
+                  className="rounded border-input"
+                />
+                <label htmlFor="startPlanning" className="text-sm text-muted-foreground cursor-pointer">
+                  Start with planning phase (AI will ask clarifying questions before dispatch)
+                </label>
+              </div>
+              {startPlanning && (
+                <div className="flex items-center gap-2 ml-5">
+                  <input
+                    type="checkbox"
+                    id="autoApprovePlan"
+                    checked={autoApprovePlan}
+                    onChange={(e) => setAutoApprovePlan(e.target.checked)}
+                    className="rounded border-input"
+                  />
+                  <label htmlFor="autoApprovePlan" className="text-sm text-muted-foreground cursor-pointer">
+                    Auto-approve plan and dispatch when ready
+                  </label>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

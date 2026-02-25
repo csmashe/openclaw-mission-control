@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask, updateTask, addComment } from "@/lib/db";
 import { extractJSON, getMessagesFromOpenClaw } from "@/lib/planning-utils";
+import { resolveInternalApiUrl } from "@/lib/internal-api";
+import { isOrchestratorEnabled, orchestrateAfterPlanning } from "@/lib/orchestrator";
 import { broadcast } from "@/lib/events";
 import { v4 as uuidv4 } from "uuid";
 
@@ -105,6 +107,16 @@ export async function GET(
       const updatedTask = getTask(taskId);
       if (updatedTask) {
         broadcast({ type: "task_updated", payload: updatedTask });
+
+        // Auto-approve: if flag is set, trigger dispatch automatically
+        if ((updatedTask as unknown as Record<string, unknown>).planning_auto_approve) {
+          autoApproveAndDispatch(taskId, updatedTask.assigned_agent_id, request).catch((err) => {
+            console.error(`[Planning Poll] Auto-approve failed for ${taskId}:`, err);
+            updateTask(taskId, {
+              ...({ planning_dispatch_error: String(err) } as Record<string, unknown>),
+            } as Parameters<typeof updateTask>[1]);
+          });
+        }
       }
     }
 
@@ -121,4 +133,67 @@ export async function GET(
       { status: 500 }
     );
   }
+}
+
+async function autoApproveAndDispatch(
+  taskId: string,
+  assignedAgentId: string | null,
+  request: NextRequest
+) {
+  const task = getTask(taskId);
+  if (!task) return;
+
+  // Need an agent to dispatch to
+  if (!assignedAgentId) {
+    addComment({
+      id: uuidv4(),
+      task_id: taskId,
+      author_type: "system",
+      content: "Auto-approve skipped: no agent assigned. Assign an agent and approve manually.",
+    });
+    return;
+  }
+
+  // Log auto-approval
+  let specContent = "Spec auto-approved and dispatched";
+  try {
+    const specRaw = (task as unknown as Record<string, unknown>).planning_spec as string;
+    if (specRaw) {
+      const spec = JSON.parse(specRaw);
+      if (spec.title) specContent = `Spec auto-approved: "${spec.title}"`;
+    }
+  } catch { /* ignore */ }
+
+  addComment({
+    id: uuidv4(),
+    task_id: taskId,
+    author_type: "system",
+    content: specContent,
+  });
+
+  // Clear any previous dispatch error
+  updateTask(taskId, {
+    ...({ planning_dispatch_error: null } as Record<string, unknown>),
+  } as Parameters<typeof updateTask>[1]);
+
+  if (isOrchestratorEnabled()) {
+    await orchestrateAfterPlanning(taskId);
+    const updatedTask = getTask(taskId);
+    if (updatedTask) broadcast({ type: "task_updated", payload: updatedTask });
+    return;
+  }
+
+  const dispatchRes = await fetch(resolveInternalApiUrl("/api/tasks/dispatch", request.url), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ taskId, agentId: assignedAgentId }),
+  });
+
+  if (!dispatchRes.ok) {
+    const err = await dispatchRes.json().catch(() => ({}));
+    throw new Error(err.error || `Dispatch failed (HTTP ${dispatchRes.status})`);
+  }
+
+  const updatedTask = getTask(taskId);
+  if (updatedTask) broadcast({ type: "task_updated", payload: updatedTask });
 }

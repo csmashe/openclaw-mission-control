@@ -125,7 +125,13 @@ const MIGRATIONS: Migration[] = [
     `,
   },
   {
-    id: "008_plugins",
+    id: "008_planning_auto_approve",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN planning_auto_approve INTEGER DEFAULT 0;
+    `,
+  },
+  {
+    id: "009_plugins",
     sql: `
       CREATE TABLE IF NOT EXISTS plugins (
         slug TEXT PRIMARY KEY,
