@@ -70,12 +70,19 @@ function initializeSchema(db: Database.Database): void {
       mission_id TEXT,
       assigned_agent_id TEXT,
       openclaw_session_key TEXT,
-      dispatch_id TEXT,
-      dispatch_started_at TEXT,
-      dispatch_message_count_start INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
+      gateway_id TEXT,
+      dispatch_id TEXT,
+      dispatch_started_at TEXT,
+      dispatch_message_count_start INTEGER DEFAULT 0,
+      planning_session_key TEXT,
+      planning_messages TEXT DEFAULT '[]',
+      planning_complete INTEGER DEFAULT 0,
+      planning_spec TEXT,
+      planning_agents TEXT,
+      planning_dispatch_error TEXT,
       FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE SET NULL
     );
 
@@ -108,16 +115,6 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(type);
   `);
 
-  const taskColumns = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map((c) => c.name);
-  if (!taskColumns.includes("dispatch_id")) {
-    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_id TEXT");
-  }
-  if (!taskColumns.includes("dispatch_started_at")) {
-    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_started_at TEXT");
-  }
-  if (!taskColumns.includes("dispatch_message_count_start")) {
-    db.exec("ALTER TABLE tasks ADD COLUMN dispatch_message_count_start INTEGER DEFAULT 0");
-  }
 }
 
 // --- Missions ---
