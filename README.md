@@ -28,6 +28,8 @@
 
 **Mission Control** is an open-source, real-time command-center dashboard for [OpenClaw](https://github.com/openclaw/openclaw) — the open-source AI agent framework. It gives you a visual interface to create tasks, dispatch them to AI agents, monitor agent activity, and track progress through a Kanban-style workflow.
 
+Based on [openclaw-mission-control](https://github.com/navjotdhanawat/openclaw-mission-control) by Navjot Dhanawat.
+
 Think of it as **your personal AI operations center** — a single pane of glass for everything your AI agents are doing.
 
 ---
@@ -75,12 +77,16 @@ Before dispatching work, tasks can go through an AI-driven planning phase:
 
 ### 🔄 Multi-Agent Orchestration
 
-Configure dedicated agents for each workflow role under **Settings > Workflow Roles**:
+Configure dedicated agents for each workflow role:
+
+1. Click the **Settings** gear icon at the bottom of the sidebar
+2. Select the **Workflow Roles** tab
+3. Assign agents to each role using the dropdowns:
 
 - **Orchestrator** — coordinates handoffs between planning, coding, and testing phases
 - **Planner** — handles spec clarification during the planning phase
 - **Tester** — validates completed work via code review, lint, type checks, and browser testing
-- **Rework cycles** — failed tests automatically loop back to the programmer, up to a configurable max
+- **Max Rework Cycles** — how many test-fix loops before escalating to manual review (default: 3)
 
 When no roles are configured, behavior is identical to default direct routing.
 
@@ -123,11 +129,20 @@ A real-time view of every active agent and what they are doing:
 
 ### 🧩 Plugin System
 
-Extend Mission Control with custom plugins — no need to modify core source:
+Extend Mission Control with custom plugins — no need to modify core source.
 
-- **Plugin directory** — drop a folder with a `plugin.json` manifest and a bundled JS file into `~/.openclaw/mission-control/plugins/`
-- **Enable/disable from UI** — manage plugins in **Settings > Plugins** with one-click toggle and directory rescan
-- **Sidebar integration** — enabled plugins get their own icon in the sidebar nav (any Lucide icon)
+#### Installing & Managing Plugins
+
+1. Drop a plugin folder into `~/.openclaw/mission-control/plugins/` (each folder needs a `plugin.json` manifest and a bundled JS entry file)
+2. Click the **Settings** gear icon at the bottom of the sidebar
+3. Select the **Plugins** tab
+4. Click the **rescan** button (top-right) to discover new plugins
+5. Toggle a plugin **Enabled** — its icon immediately appears in the sidebar after the core nav items
+6. Click the plugin icon in the sidebar to open it
+
+**Features:**
+
+- **Sidebar integration** — enabled plugins get their own icon in the sidebar nav (any [Lucide icon](https://lucide.dev/icons/))
 - **Full API access** — plugins receive a context object with `api.get/post/patch/delete`, navigation, and per-plugin settings
 - **Error boundaries** — broken plugins are caught and display an error UI with a retry button
 - **SSE events** — `plugin_toggled` event broadcasts enable/disable changes in real time
@@ -166,14 +181,6 @@ Create `index.js` (pre-bundled, React provided by host):
 ```
 
 A sample `hello-world` plugin is included in the repository.
-
-### 📁 Markdown File Browser
-
-Browse and manage markdown files within allowed project directories:
-
-- List, read, and write files via the `/api/files/*` endpoints
-- Sandboxed access with configurable root directories and deny lists
-- Conflict detection via content hashing
 
 ### 💬 Chat Panel
 
@@ -341,7 +348,6 @@ mission-control/
 │   │       ├── missions/     # Mission management
 │   │       ├── activity/     # Activity log feed
 │   │       ├── plugins/      # Plugin list, enable/disable, bundles, settings
-│   │       ├── files/        # Markdown file browser (list, download, upload)
 │   │       ├── settings/     # Workflow role settings
 │   │       ├── who-working/  # Active worker snapshot
 │   │       └── openclaw/     # Gateway status, tools, logs, device-pair, usage
@@ -363,7 +369,6 @@ mission-control/
 │       ├── plugin-db.ts      # Plugin enable/disable & settings DB
 │       ├── plugin-types.ts   # Plugin type definitions
 │       ├── who-working.ts    # Active worker detection & stall analysis
-│       ├── markdown-files.ts # Sandboxed file browser
 │       └── openclaw-client.ts # WebSocket client for gateway
 ├── data/                     # SQLite database (auto-created)
 └── public/                   # Static assets
@@ -417,14 +422,6 @@ Mission Control exposes REST API endpoints for programmatic access:
 | `GET`    | `/api/plugins/{slug}/settings`        | Get plugin-specific settings                          |
 | `PATCH`  | `/api/plugins/{slug}/settings`        | Update plugin-specific settings                       |
 
-### Files
-
-| Method   | Endpoint                              | Description                                           |
-| -------- | ------------------------------------- | ----------------------------------------------------- |
-| `GET`    | `/api/files/list`                     | List files in an allowed directory                    |
-| `GET`    | `/api/files/download`                 | Read a markdown file                                  |
-| `POST`   | `/api/files/upload`                   | Write/update a markdown file (with conflict detection)|
-
 ### Other
 
 | Method   | Endpoint                              | Description                                           |
@@ -477,7 +474,7 @@ npm run build
 
 ## 📄 License
 
-This project is licensed under the [MIT License](../LICENSE).
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
